@@ -45,6 +45,14 @@ Navigate to the client directory and install the required packages:
 cd client
 npm install
 ```
+
+#### Create `.env` file
+```dotenv
+WS_PORT=8080                              
+SERVER=localhost 
+WS_PROTOCOL=ws                        
+```
+
 #### Run the Client
 Start the client with the following command:
 ```bash
