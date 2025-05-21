@@ -1,0 +1,64 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Guidelines for TypeScript, WebSocket, Phaser, and Vite projects covering code style, architecture, and best practices.
+globs: **/*.{ts,js}
+---
+# TypeScript Game Development Guidelines
+
+These guidelines apply to projects using TypeScript with Phaser, WebSocket networking, and Vite build tools.
+
+## General Principles
+
+* **Code Preservation:** Do not remove existing code or comments unless necessary for new functionality.
+* **Format Respect:** Maintain the existing formatting of imports and code structure when possible.
+* **Programming Paradigm:** Prefer functional and declarative programming patterns over imperative approaches.
+* **Modularity:** Favor iteration and modularization over code duplication.
+
+## Code Organization
+
+### File Structure
+
+* **Directory Naming:** Use lowercase with dashes for directories (e.g., `scenes/main-menu`).
+* **File Organization:** Structure files by purpose:
+  * Game scenes
+  * Systems
+  * Utils
+  * Networking
+  * Types
+
+### Naming Conventions
+
+* **Variable Names:** Use descriptive names with auxiliary verbs (e.g., `isConnected`, `hasStarted`).
+* **Module Exports:** Favor named exports for utilities and helper functions.
+* **Class Naming:** Use PascalCase for Phaser scenes and modules that extend classes.
+
+## TypeScript Usage
+
+* **Type Definitions:** Use TypeScript for all code; prefer interfaces over types.
+* **Avoid Enums:** Use union types or maps instead of enums.
+* **Interface Applications:** Use interfaces for:
+  * Game object definitions
+  * Network messages
+  * Configuration objects
+
+## Syntax and Style
+
+* **Function Declaration:** Use the "function" keyword for pure functions.
+* **Conditional Blocks:** Use curly braces for all conditionals.
+* **Code Simplicity:** Favor simplicity over cleverness in control flow and state management.
+
+## Game UI and Styling
+
+* **Rendering:** Use Phaser's built-in rendering and input systems for UI.
+* **Styling Approach:** Style via Phaser graphics, bitmap text, or custom shaders as needed.
+* **Component Reuse:** Organize UI into reusable systems or components when practical.
+
+## Networking
+
+* **Communication Protocol:** Use WebSocket for real-time communication.
+* **Message Structure:** Structure network messages with typed schemas.
+* **Architectural Separation:** Keep networking logic isolated from rendering and game logic.

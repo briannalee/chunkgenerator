@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES6",
+    "module": "ESNext", // Ensures ES module syntax
+    "moduleResolution": "Node", 
+    "strict": true,
+    "outDir": "./dist", // Outputs transpiled code to a directory
+    "rootDir": "./src",
+    "esModuleInterop": true, // Ensures compatibility with CommonJS modules
+    "types": ["vitest/globals"],
+    "lib": ["ES2020", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@test/*": ["test/*"]
+    },
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
