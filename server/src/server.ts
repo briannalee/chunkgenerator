@@ -1,17 +1,28 @@
 import express from "express";
 import { WebSocketServer } from "ws";
-import mongoose from "mongoose";
+import { createServer } from "http";
 import dotenv from "dotenv";
-import { Chunk } from "./models/Chunk";
+import { findChunk, saveChunk } from "./models/Chunk";
 import { randomInt } from "crypto";
 
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3000;
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
 
-// MongoDB connection
-mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/game");
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+const port = process.env.PORT || 8080;
+
 
 // Terrain types
 const TERRAIN_TYPES = ["grass", "rock", "forest", "water", "desert"];
@@ -28,51 +39,68 @@ const generateChunk = (x: number, y: number) => {
   return { x, y, tiles };
 };
 
-// WebSocket server
-const wss = new WebSocketServer({ noServer: true });
+// Shared player state
 const players: Record<string, { x: number; y: number }> = {};
+
+// WebSocket server setup
+const httpServer = createServer(app);
+const wss = new WebSocketServer({ server: httpServer });
 
 wss.on("connection", (ws) => {
   const id = Math.random().toString(36).substr(2, 9);
   players[id] = { x: 0, y: 0 };
-
   ws.send(JSON.stringify({ type: "connected", id, players }));
-  console.log("Player connected:", id); 
+  console.log("WebSocket player connected:", id);
 
   ws.on("message", async (data) => {
-    
     const message = JSON.parse(data.toString());
-
-    if (message.type === "requestChunk") {
-      const { x, y } = message;
-      let chunk = await Chunk.findOne({ x, y });
-      if (!chunk) {
-        const generatedChunk = generateChunk(x, y);
-        chunk = new Chunk(generatedChunk);
-        await chunk.save();
-      }
-      ws.send(JSON.stringify({ type: "chunkData", chunk }));
-    } else if (message.type === "move") {
-
-      const { x, y } = message;
-      players[id] = { x, y };
-      wss.clients.forEach((client) => {
-        client.send(JSON.stringify({ type: "playerUpdate", players }));
-      });
-    }
+    await handleMessage(message, id, (response) => {
+      ws.send(JSON.stringify(response));
+    });
   });
 
   ws.on("close", () => {
     delete players[id];
-    wss.clients.forEach((client) => {
-      client.send(JSON.stringify({ type: "playerUpdate", players }));
-    });
+    broadcastPlayerUpdate();
+    console.log("WebSocket player disconnected:", id);
   });
 });
 
-const server = app.listen(port, () => console.log(`Server running on port ${port}`));
-server.on("upgrade", (req, socket, head) => {
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit("connection", ws, req);
+// Shared message handling logic
+async function handleMessage(
+  message: any,
+  playerId: string,
+  sendResponse: (response: any) => void
+) {
+  if (message.type === "requestChunk") {
+    const { x, y } = message;
+    let chunk = findChunk(x, y);
+    if (!chunk) {
+      const generatedChunk = generateChunk(x, y);
+      saveChunk(generatedChunk);
+      chunk = generatedChunk;
+    }
+    sendResponse({ type: "chunkData", chunk });
+  } else if (message.type === "move") {
+    const { x, y } = message;
+    players[playerId] = { x, y };
+    broadcastPlayerUpdate();
+  }
+}
+
+// Broadcast player updates to all connected clients
+function broadcastPlayerUpdate() {
+  const updateMessage = JSON.stringify({ type: "playerUpdate", players });
+
+  // Broadcast to WebSocket clients
+  wss.clients.forEach((client) => {
+    if (client.readyState === client.OPEN) {
+      client.send(updateMessage);
+    }
   });
+}
+
+// Start servers
+httpServer.listen(port, () => {
+  console.log(`HTTP/WebSocket server running on port ${port}`);
 });

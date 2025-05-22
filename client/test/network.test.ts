@@ -1,17 +1,17 @@
 // test/network.integration.test.ts
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { NetworkFactory } from '../src/network/NetworkFactory';
-import { INetworkAdapter } from '../src/network/INetworkAdapter';
+import { INetworkAdapter } from '../src/network/INetworkAdapter'
 
 // Test configuration
 const TEST_TIMEOUT = 5000; // 5 seconds timeout per test
-const TEST_WEBTRANSPORT = false; // Set to true to test WebTransport, if implemented
+export const SERVER_URL = 'ws://localhost';
 
-describe('Real Network Adapter Tests', () => {
+describe('WebSocket Network Adapter Tests', () => {
   let adapter: INetworkAdapter;
 
   beforeAll(() => {
-    adapter = NetworkFactory.createAdapter(TEST_WEBTRANSPORT);
+    adapter = NetworkFactory.createAdapter();
   });
 
   afterAll(() => {
@@ -20,7 +20,7 @@ describe('Real Network Adapter Tests', () => {
 
   it('should connect to the real server', async () => {
     await expect(adapter.connect()).resolves.toBeUndefined();
-    expect(adapter.readyState).toBe('open');
+    expect(adapter.readyState.toLowerCase()).toBe('open');
   }, TEST_TIMEOUT);
 
   it('should receive "connected" message after handshake', async () => {
@@ -56,3 +56,4 @@ describe('Real Network Adapter Tests', () => {
     });
   }, TEST_TIMEOUT);
 });
+

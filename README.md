@@ -5,19 +5,9 @@ This project includes both a client and a server. Follow the instructions below 
 ## Prerequisites
 
 - Node.js
-- MongoDB
 
-### 1. Install MongoDB
 
-If you don't have MongoDB installed, you can install it by following the [official MongoDB installation guide](https://docs.mongodb.com/manual/installation/).
-
-Alternatively, you can use Docker to run MongoDB:
-
-```bash
-docker run --name mongodb -d -p 27017:27017 mongo
-```
-
-### 2. Set Up the Server
+### 1. Set Up the Server
 #### Install Dependencies
 Navigate to the server directory and install the required packages:
 ```bash
