@@ -1,5 +1,6 @@
 
 interface ImportMetaEnv {
+  MODE: string;
   WT_PROTOCOL: string;
   WT_PORT: string;
   readonly VITE_API_URL: string;

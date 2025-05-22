@@ -10,4 +10,9 @@ const config: Phaser.Types.Core.GameConfig = {
   zoom: 1,
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+if (process.env.NODE_ENV === 'test' || import.meta.env.MODE === 'development') {
+  console.log('Game is running in test or development mode');
+  (window as any).game = game;
+}

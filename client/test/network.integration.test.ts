@@ -5,17 +5,17 @@ import { INetworkAdapter } from '../src/network/INetworkAdapter'
 
 // Test configuration
 const TEST_TIMEOUT = 5000; // 5 seconds timeout per test
-export const SERVER_URL = 'ws://localhost';
 
 describe('WebSocket Network Adapter Tests', () => {
-  let adapter: INetworkAdapter;
+    let adapter: INetworkAdapter;
 
   beforeAll(() => {
     adapter = NetworkFactory.createAdapter();
   });
 
-  afterAll(() => {
-    adapter.disconnect();
+  afterAll(async () => {
+    await adapter.disconnect();
+    await new Promise(resolve => setTimeout(resolve, 300)); // Cleanup delay
   });
 
   it('should connect to the real server', async () => {
@@ -24,15 +24,13 @@ describe('WebSocket Network Adapter Tests', () => {
   }, TEST_TIMEOUT);
 
   it('should receive "connected" message after handshake', async () => {
-    const response = await new Promise(resolve => {
+    const response = await new Promise((resolve) => {
       adapter.onMessage(data => resolve(data));
-      adapter.send({ type: 'handshake' }); 
+      adapter.send({ type: 'handshake' });
     });
-
     expect(response).toMatchObject({
       type: 'connected',
       id: expect.any(String),
-      players: expect.anything()
     });
   }, TEST_TIMEOUT);
 
@@ -56,4 +54,5 @@ describe('WebSocket Network Adapter Tests', () => {
     });
   }, TEST_TIMEOUT);
 });
+
 

@@ -6,11 +6,11 @@ export const SERVER_URL = import.meta.env.SERVER || 'http://localhost';
 export const TILE_SIZE = 8;
 export const CHUNK_SIZE = 10;
 export const CHUNK_BUFFER = 1;
-const DEBUG_MODE = false;
+const DEBUG_MODE = true;
 
 export class GameScene extends Phaser.Scene {
-  private network!: INetworkAdapter;
-  private player!: Phaser.GameObjects.Rectangle;
+  public network!: INetworkAdapter;
+  public player!: Phaser.GameObjects.Rectangle;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private loadedChunks: Set<string> = new Set();
   private pendingChunks: Set<string> = new Set();
@@ -153,7 +153,7 @@ export class GameScene extends Phaser.Scene {
         .setScrollFactor(1);
 
       chunkTileObjects.push(rect);
-      this.tilesGroup.add(rect); 
+      this.tilesGroup.add(rect);
     });
 
     this.chunkTiles.set(chunkKey, chunkTileObjects);
@@ -305,14 +305,21 @@ export class GameScene extends Phaser.Scene {
   /**
    * Logs memory usage statistics for debugging purposes.
    */
-  private debugMemoryUsage() {
-    const loadedChunksCount = this.loadedChunks.size;
-    const pendingChunksCount = this.pendingChunks.size;
-    const tilesCount = this.tilesGroup.getChildren().length;
-    const playersCount = Object.keys(this.players).length;
+  public getMemoryStats() {
+    return {
+      loadedChunks: this.loadedChunks.size,
+      pendingChunks: this.pendingChunks.size,
+      tiles: this.tilesGroup.getChildren().length,
+      players: Object.keys(this.players).length
+    };
+  }
 
-    console.log(`Memory: ${loadedChunksCount} chunks, ${pendingChunksCount} pending, ` +
-      `${tilesCount} tiles, ${playersCount} players`);
+  private debugMemoryUsage() {
+    const stats = this.getMemoryStats();
+    console.log(
+      `Memory: ${stats.loadedChunks} chunks, ${stats.pendingChunks} pending, ` +
+      `${stats.tiles} tiles, ${stats.players} players`
+    );
   }
 
   /**
