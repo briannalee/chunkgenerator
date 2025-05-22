@@ -16,18 +16,11 @@
   "dependencies": {
     "phaser": "^3.87.0",
     "ts-loader": "^9.5.2",
-    "webpack": "^5.97.1",
-    "ws": "^8.18.0"
+    "webpack": "^5.97.1"
   },
   "devDependencies": {
-    "@testing-library/dom": "^10.4.0",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@types/jest": "^29.5.14",
-    "canvas": "^3.1.0",
     "jsdom": "^26.1.0",
-    "phaser3spectorjs": "^0.0.8",
     "vite": "^6.0.11",
-    "vitest": "^3.1.4",
-    "webpack-cli": "^6.0.1"
+    "vitest": "^3.1.4"
   }
 }
