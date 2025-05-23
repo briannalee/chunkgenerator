@@ -1,60 +1,20 @@
 import { INetworkAdapter } from "./INetworkAdapter";
 export class WebSocketAdapter implements INetworkAdapter {
-  private socket: WebSocket;
-  private messageCallbacks: Array<(data: unknown) => void> = [];
-  private disconnectCallbacks: Array<() => void> = [];
-  
-  constructor(private url: string) {
-    this.socket = new WebSocket(url);
-    this.socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data.toString());
-        this.messageCallbacks.forEach(cb => cb(data));
-      } catch (error) {
-        console.error('Failed to parse message:', error);
-      }
-    };
-    this.socket.onclose = () => {
-      this.disconnectCallbacks.forEach(cb => cb());
-    };
+  connect(): Promise<void> {
+    throw new Error("Method not implemented.");
   }
-
-  async connect(): Promise<void> {
-    if (this.socket.readyState === WebSocket.OPEN) return Promise.resolve();
-    
-    return new Promise((resolve, reject) => {
-      this.socket.onopen = () => resolve();
-      this.socket.onerror = (error) => reject(error);
-    });
-  }
-
   disconnect(): void {
-    this.socket.close();
+    throw new Error("Method not implemented.");
   }
-
   send(data: unknown): void {
-    if (this.socket.readyState !== WebSocket.OPEN) {
-      console.warn('Trying to send while connection is not open');
-      return;
-    }
-    this.socket.send(JSON.stringify(data));
+    throw new Error("Method not implemented.");
   }
-
   onMessage(callback: (data: unknown) => void): void {
-    this.messageCallbacks.push(callback);
+    throw new Error("Method not implemented.");
   }
-
   onDisconnect(callback: () => void): void {
-    this.disconnectCallbacks.push(callback);
+    throw new Error("Method not implemented.");
   }
-
-  get readyState() {
-    switch (this.socket.readyState) {
-      case WebSocket.CONNECTING: return 'connecting';
-      case WebSocket.OPEN: return 'open';
-      case WebSocket.CLOSING: return 'closing';
-      case WebSocket.CLOSED: return 'closed';
-      default: return 'closed';
-    }
-  }
+  readyState: "connecting" | "open" | "closing" | "closed";
+  // TODO: Implement the WebSocketAdapter class
 }

@@ -1,27 +1,34 @@
-import Phaser from 'phaser';
-import { NetworkFactory } from '../network/NetworkFactory';
-import { INetworkAdapter } from '../network/INetworkAdapter';
+import Phaser from "phaser";
 
-export const SERVER_URL = import.meta.env.SERVER || 'http://localhost';
-export const TILE_SIZE = 8;
-export const CHUNK_SIZE = 10;
-export const CHUNK_BUFFER = 1;
-const DEBUG_MODE = true;
+const CHUNK_SIZE = 10; // Size of each chunk in tiles
+const TILE_SIZE = 8; // Size of each tile in pixels
+const SERVER_URL = import.meta.env.VITE_SERVER || '127.0.0.1';
+const WS_PORT = import.meta.env.VITE_WS_PORT || '15432';
+const WS_PROTOCOL = import.meta.env.VITE_WS_PROTOCOL || 'ws';
+const CHUNK_BUFFER = 1; // Buffer of 1 chunk in each direction
+const MAX_PENDING_REQUESTS = 4; // Limit concurrent chunk requests
+const DEBUG_MODE = false; // Enable debug mode for memory usage
 const FRAME_HISTORY_SIZE = 300; 
 
 export class GameScene extends Phaser.Scene {
-  public network!: INetworkAdapter;
-  public player!: Phaser.GameObjects.Rectangle;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private loadedChunks: Set<string> = new Set();
-  private pendingChunks: Set<string> = new Set();
-  private tilesGroup!: Phaser.GameObjects.Group;
-  private players: Record<string, Phaser.GameObjects.Rectangle> = {};
-  private playerId!: string;
-  private lastPlayerChunkX: number = 0;
-  private lastPlayerChunkY: number = 0;
+  socket!: WebSocket; // WebSocket connection
+  player!: Phaser.GameObjects.Rectangle; // Player object
+  cursors!: Phaser.Types.Input.Keyboard.CursorKeys; // Cursor keys
+  camera!: Phaser.Cameras.Scene2D.Camera; // Main camera
+  chunks: Record<string, any> = {}; // Store loaded chunks
+  loadedChunks: Set<string> = new Set(); // Track loaded chunks
+  pendingChunks: Set<string> = new Set(); // Track pending chunk requests
+  tilesGroup!: Phaser.GameObjects.Group; // Group to contain the tiles
+  players: Record<string, Phaser.GameObjects.Rectangle> = {}; // Store other players
+  playerId!: string; // Store this client's player ID
+  lastVisibleChunks: string[] = []; // Store last visible chunks for comparison
+  chunkLoadTimer: number = 0; // Timer to check for new chunk loads
+  lastPlayerChunkX: number = 0; // Last player chunk X coordinate
+  lastPlayerChunkY: number = 0; // Last player chunk Y coordinate
+  lastCameraZoom: number = 2; // Camera zoom, default to 1
+  lastChunkCheck: number = 0; // Time tracker for throttling chunk checks
 
-  // Performance stats - optimized
+  // Performance stats
   private frameTimes: number[] = [];
   private frameTimeIndex: number = 0;
   private perfStats = {
@@ -30,65 +37,83 @@ export class GameScene extends Phaser.Scene {
   }
 
 
-  // Chunk loading optimization
-  private chunkLoadCooldown: number = 0;
-  private readonly CHUNK_LOAD_INTERVAL = 100; // ms between chunk loading batches
-  private pendingChunkQueue: {x: number, y: number, distance: number}[] = [];
-
-  private chunkTiles: Map<string, Phaser.GameObjects.Rectangle[]> = new Map()
-
   constructor() {
-    super({ key: 'GameScene' });
-    // Pre-allocate frame times array
+    super({ key: "GameScene" });    
     this.frameTimes = new Array(FRAME_HISTORY_SIZE).fill(0);
     this.frameTimeIndex = 0;
   }
 
   preload() {
-    this.network = NetworkFactory.createAdapter();
-    this.network.onMessage(this.handleNetworkMessage.bind(this));
-    this.network.onDisconnect(this.handleDisconnect.bind(this));
+    // WebSocket connection
+    const SOCKET_URL = `${WS_PROTOCOL}://${SERVER_URL}:${WS_PORT}`;
+    this.socket = new WebSocket(SOCKET_URL);
+
+    // Handle incoming messages
+    this.socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+
+      // Handle chunk data
+      if (message.type === "chunkData") {
+        const { x, y, tiles } = message.chunk;
+        const chunkKey = `${x},${y}`;
+        this.chunks[chunkKey] = tiles;
+        this.renderChunk(x, y, tiles);
+        this.loadedChunks.add(chunkKey);
+        this.pendingChunks.delete(chunkKey);
+
+        // Immediately try to request more chunks if we received data
+        this.checkPendingChunks();
+
+        // Handle player connection
+      } else if (message.type === "connected") {
+        this.playerId = message.id; // Set this client's player ID
+        this.renderPlayers(message.players); // Render initial player positions
+
+        // Handle player update
+      } else if (message.type === "playerUpdate") {
+        this.renderPlayers(message.players); // Update player positions
+      }
+    };
+
+    this.socket.onopen = () => {
+      // Initial chunk loading when socket opens
+      this.updateVisibleChunks();
+    };
   }
 
   create() {
-    // Loading text
-    const loadingText = this.add.text(0, 0, 'Connecting...', {
-      fontSize: '24px',
-      color: '#ffffff'
-    })
-      .setOrigin(0.5)
-      .setDepth(20);
-
-    // Create tiles group
-    this.tilesGroup = this.add.group();
-
-    // Create player 
-    this.player = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE, 0xff0000)
-      .setDepth(10);
-
+    // Create player
+    this.player = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE, 0xff0000);
     this.cursors = this.input.keyboard!.createCursorKeys();
 
-    // Set up camera
-    this.cameras.main.startFollow(this.player);
-    this.cameras.main.setZoom(2);
+    // Set player depth to be above the tiles
+    this.player.setDepth(1);
 
-    this.network.connect()
-      .then(() => {
-        loadingText.destroy();
-      })
-      .catch(error => {
-        loadingText.setText('Connection failed');
-        console.error(error);
-      })
+    // Camera setup
+    this.camera = this.cameras.main;
+    this.camera.startFollow(this.player);
+    this.camera.setZoom(2);
+
+    // Group to hold tile objects
+    this.tilesGroup = this.add.group();
+
+    console.log("Zoom", this.camera.zoom);
+    console.log("Camera", this.camera.width, this.camera.height);
   }
 
   update(time: number, delta: number) {
-     // Track frame timing
+    // Track frame timing
     this.frameTimes[this.frameTimeIndex] = delta;
     this.frameTimeIndex = (this.frameTimeIndex + 1) % this.frameTimes.length;
     
     // Performance counter
     this.perfStats.frameCount++;
+    
+
+    // Keep only the last 100 frames
+    if (this.frameTimes.length > 1000) {
+      this.frameTimes.shift();
+    }
 
     const speed = 2;
     const prevX = this.player.x;
@@ -99,299 +124,246 @@ export class GameScene extends Phaser.Scene {
     if (this.cursors.up.isDown) this.player.y -= speed;
     if (this.cursors.down.isDown) this.player.y += speed;
 
+    // Send position update if player moved 
     if (prevX !== this.player.x || prevY !== this.player.y) {
-      this.sendPositionUpdate();
+      this.socket.send(JSON.stringify({ type: "move", x: this.player.x, y: this.player.y }));
+
+      // Check if player entered a new chunk
+      const chunkSize = CHUNK_SIZE * TILE_SIZE;
+      const currentChunkX = Math.floor(this.player.x / chunkSize);
+      const currentChunkY = Math.floor(this.player.y / chunkSize);
+
+      const now = Date.now();
+      // Only check for visible chunks every 100ms at most
+      const throttleTime = 100;
+
+      if (
+        currentChunkX !== this.lastPlayerChunkX ||
+        currentChunkY !== this.lastPlayerChunkY ||
+        (now - this.lastChunkCheck > throttleTime && this.pendingChunks.size === 0)
+      ) {
+        this.lastPlayerChunkX = currentChunkX;
+        this.lastPlayerChunkY = currentChunkY;
+        this.lastChunkCheck = now;
+        this.updateVisibleChunks(); // Force update when changing chunks
+      }
+      if (DEBUG_MODE) {
+        this.debugMemoryUsage(); // Log memory usage
+      }
+    }
+
+    // Check if camera zoom changed (which would affect visible chunks)
+    if (this.camera.zoom !== this.lastCameraZoom) {
+      this.lastCameraZoom = this.camera.zoom;
       this.updateVisibleChunks();
     }
-
-    // Process chunk queue with cooldown
-    this.processChunkQueue(time);
   }
 
-  private sendPositionUpdate() {
-    this.network.send({
-      type: 'move',
-      x: this.player.x,
-      y: this.player.y
-    });
+  checkPendingChunks() {
+    if (this.socket.readyState !== WebSocket.OPEN) return;
 
-    // Debug memory usage periodically if in DEBUG_MODE
-    if (DEBUG_MODE && this.perfStats.frameCount % 60 === 0) {
-      this.debugMemoryUsage();
-    }
-  }
+    // Get the current list of chunks that need to be loaded
+    const visibleChunks = this.getVisibleChunkKeys();
 
-  private handleNetworkMessage(data: unknown) {
-    if (typeof data !== 'object' || data === null) return;
+    // Filter to chunks that are visible but not loaded or pending
+    const chunksToRequest = visibleChunks.filter(
+      chunkKey => !this.loadedChunks.has(chunkKey) && !this.pendingChunks.has(chunkKey)
+    );
 
-    const message = data as Record<string, any>;
+    // If we have room for more pending requests, make them
+    const availableSlots = MAX_PENDING_REQUESTS - this.pendingChunks.size;
+    if (availableSlots > 0 && chunksToRequest.length > 0) {
+      const chunksToLoad = chunksToRequest.slice(0, availableSlots);
 
-    switch (message.type) {
-      case 'connected':
-        this.playerId = message.id;
-        this.renderPlayers(message.players);
-        this.updateVisibleChunks(true);
-        break;
+      for (const chunkKey of chunksToLoad) {
+        const [x, y] = chunkKey.split(',').map(Number);
+        this.socket.send(JSON.stringify({ type: "requestChunk", x, y }));
 
-      case 'chunkData':
-        this.handleChunkData(message.chunk, message.terrainTypes);
-        break;
-
-      case 'chunkDataCompressed':
-        // Handle binary compressed data (if implemented)
-        console.log(`Received compressed chunk data: ${message.size} bytes`);
-        break;
-
-      case 'playerUpdate':
-        if (message.delta) {
-          this.handleDeltaPlayerUpdate(message.players);
-        } else {
-          this.renderPlayers(message.players);
-        }
-        break;
-    }
-  }
-
-  private handleChunkData(chunk: any, terrainTypes?: string[]) {
-    const { x, y, tiles } = chunk;
-    const chunkKey = `${x},${y}`;
-
-    // Remove from pending first
-    this.pendingChunks.delete(chunkKey);
-
-    // Only render if not already loaded
-    if (!this.loadedChunks.has(chunkKey)) {
-      // Handle compressed tile format: [x, y, typeId, x, y, typeId, ...]
-      let processedTiles;
-      if (Array.isArray(tiles) && Array.isArray(tiles[0])) {
-        // Compact format: [[x, y, typeId], [x, y, typeId], ...]
-        processedTiles = tiles.map(([x, y, typeId]: number[]) => ({
-          x,
-          y,
-          type: terrainTypes ? terrainTypes[typeId] : `type_${typeId}`
-        }));
-      } else if (Array.isArray(tiles) && typeof tiles[0] === 'number') {
-        // Flat format: [x, y, typeId, x, y, typeId, ...]
-        processedTiles = [];
-        for (let i = 0; i < tiles.length; i += 3) {
-          processedTiles.push({
-            x: tiles[i],
-            y: tiles[i + 1],
-            type: terrainTypes ? terrainTypes[tiles[i + 2]] : `type_${tiles[i + 2]}`
-          });
-        }
-      } else {
-        // Standard format
-        processedTiles = tiles;
+        this.pendingChunks.add(chunkKey);
       }
-
-      this.renderChunk(x, y, processedTiles);
-      this.loadedChunks.add(chunkKey);
     }
   }
 
-  private handleDeltaPlayerUpdate(deltaPlayers: Record<string, { x: number; y: number } | null>) {
-    Object.entries(deltaPlayers).forEach(([id, pos]) => {
-      if (id === this.playerId) return; // Skip local player
+  getVisibleChunkKeys() {
+    const centerX = this.player.x;
+    const centerY = this.player.y;
 
-      if (pos === null) {
-        // Player removed
-        if (this.players[id]) {
-          this.players[id].destroy();
-          delete this.players[id];
-        }
-      } else {
-        // Player added or moved
-        if (this.players[id]) {
-          this.players[id].setPosition(pos.x, pos.y);
-        } else {
-          this.players[id] = this.add.rectangle(pos.x, pos.y, TILE_SIZE, TILE_SIZE, 0xff00ff)
-            .setDepth(5);
-        }
-      }
-    });
-  }
+    // Calculate visible area around the player
+    const halfWidth = (this.camera.width / this.camera.zoom) / 2;
+    const halfHeight = (this.camera.height / this.camera.zoom) / 2;
 
-  private renderChunk(chunkX: number, chunkY: number, tiles: any[]) {
-    const chunkKey = `${chunkX},${chunkY}`;
-    const chunkTileObjects: Phaser.GameObjects.Rectangle[] = [];
+    const cameraBounds = {
+      left: centerX - halfWidth,
+      right: centerX + halfWidth,
+      top: centerY - halfHeight,
+      bottom: centerY + halfHeight
+    };
 
-    const startX = chunkX * CHUNK_SIZE * TILE_SIZE;
-    const startY = chunkY * CHUNK_SIZE * TILE_SIZE;
-
-    tiles.forEach((tile: any) => {
-      const tileWorldX = startX + tile.x * TILE_SIZE;
-      const tileWorldY = startY + tile.y * TILE_SIZE;
-
-      const color = this.getTileColor(tile.type);
-      const rect = this.add.rectangle(tileWorldX, tileWorldY, TILE_SIZE, TILE_SIZE, color)
-        .setOrigin(0)
-        .setDepth(0)
-        .setScrollFactor(1);
-
-      chunkTileObjects.push(rect);
-      this.tilesGroup.add(rect);
-    });
-
-    this.chunkTiles.set(chunkKey, chunkTileObjects);
-  }
-
-  private updateVisibleChunks(force = false) {
+    // Convert camera bounds to chunk coordinates with buffer
     const chunkSize = CHUNK_SIZE * TILE_SIZE;
-    const currentChunkX = Math.floor(this.player.x / chunkSize);
-    const currentChunkY = Math.floor(this.player.y / chunkSize);
 
-    if (force || currentChunkX !== this.lastPlayerChunkX || currentChunkY !== this.lastPlayerChunkY) {
-      this.lastPlayerChunkX = currentChunkX;
-      this.lastPlayerChunkY = currentChunkY;
+    const startChunkX = Math.floor(cameraBounds.left / chunkSize) - CHUNK_BUFFER;
+    const endChunkX = Math.floor(cameraBounds.right / chunkSize) + CHUNK_BUFFER;
+    const startChunkY = Math.floor(cameraBounds.top / chunkSize) - CHUNK_BUFFER;
+    const endChunkY = Math.floor(cameraBounds.bottom / chunkSize) + CHUNK_BUFFER;
 
-      this.queueVisibleChunks(currentChunkX, currentChunkY);
-      this.unloadDistantChunks(currentChunkX, currentChunkY);
-    }
-  }
-
-  private unloadDistantChunks(currentChunkX: number, currentChunkY: number) {
-    const camera = this.cameras.main;
-    const zoom = camera.zoom;
-    const screenWidth = this.scale.width;
-    const screenHeight = this.scale.height;
-
-    // Calculate visible area in world pixels
-    const worldWidth = screenWidth / zoom;
-    const worldHeight = screenHeight / zoom;
-
-    // Calculate bounds with buffer
-    const left = this.player.x - worldWidth * 0.75;
-    const right = this.player.x + worldWidth * 0.75;
-    const top = this.player.y - worldHeight * 0.75;
-    const bottom = this.player.y + worldHeight * 0.75;
-
-    // Convert to chunk coordinates
-    const chunkSize = CHUNK_SIZE * TILE_SIZE;
-    const leftChunk = Math.floor(left / chunkSize);
-    const rightChunk = Math.floor(right / chunkSize);
-    const topChunk = Math.floor(top / chunkSize);
-    const bottomChunk = Math.floor(bottom / chunkSize);
-
-    const keepLoaded = new Set<string>();
-    for (let x = leftChunk; x <= rightChunk; x++) {
-      for (let y = topChunk; y <= bottomChunk; y++) {
-        keepLoaded.add(`${x},${y}`);
+    // Generate list of visible chunks
+    const visibleChunks: string[] = [];
+    for (let x = startChunkX; x <= endChunkX; x++) {
+      for (let y = startChunkY; y <= endChunkY; y++) {
+        visibleChunks.push(`${x},${y}`);
       }
     }
 
-    // Unload chunks that are loaded but outside the keepLoaded area
-    const loadedChunks = Array.from(this.loadedChunks);
-    for (const chunkKey of loadedChunks) {
-      if (!keepLoaded.has(chunkKey)) {
+    return visibleChunks;
+  }
+
+  updateVisibleChunks() {
+    if (this.socket.readyState !== WebSocket.OPEN) return;
+
+    const visibleChunks = this.getVisibleChunkKeys();
+
+    // Check if visible chunks have changed to avoid unnecessary processing
+    const visibleChunksString = JSON.stringify(visibleChunks.sort());
+    const lastVisibleChunksString = JSON.stringify(this.lastVisibleChunks.sort());
+
+    if (visibleChunksString === lastVisibleChunksString) {
+      return;
+    }
+
+    this.lastVisibleChunks = visibleChunks;
+
+    // Check for pending chunks
+    this.checkPendingChunks();
+
+    // Unload chunks that are far outside the visible area (with additional buffer for unloading)
+    const unloadBuffer = CHUNK_BUFFER + 2; // Extra buffer before unloading chunks
+
+    // Calculate the extended bounds for unloading using player position
+    const centerX = this.player.x;
+    const centerY = this.player.y;
+    const halfWidth = (this.camera.width / this.camera.zoom) / 2;
+    const halfHeight = (this.camera.height / this.camera.zoom) / 2;
+
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
+    const minX = Math.floor((centerX - halfWidth) / chunkSize) - unloadBuffer;
+    const maxX = Math.floor((centerX + halfWidth) / chunkSize) + unloadBuffer;
+    const minY = Math.floor((centerY - halfHeight) / chunkSize) - unloadBuffer;
+    const maxY = Math.floor((centerY + halfHeight) / chunkSize) + unloadBuffer;
+
+    // Check all loaded chunks
+    const loadedChunkKeys = Array.from(this.loadedChunks);
+    for (const chunkKey of loadedChunkKeys) {
+      const [x, y] = chunkKey.split(',').map(Number);
+
+      // Check if chunk is far outside the camera view
+      if (x < minX || x > maxX || y < minY || y > maxY) {
         this.unloadChunk(chunkKey);
       }
     }
   }
 
-  private unloadChunk(chunkKey: string) {
-    if (this.loadedChunks.has(chunkKey)) {
+  unloadChunk(chunkKey: string) {
+    // Remove tiles from the scene
+    if (this.chunks[chunkKey]) {
       const [chunkX, chunkY] = chunkKey.split(',').map(Number);
-      this.clearChunkTiles(chunkX, chunkY);
-      this.loadedChunks.delete(chunkKey);
-    }
-    this.pendingChunks.delete(chunkKey);
-  }
+      const startX = chunkX * CHUNK_SIZE * TILE_SIZE;
+      const startY = chunkY * CHUNK_SIZE * TILE_SIZE;
+      const endX = startX + CHUNK_SIZE * TILE_SIZE;
+      const endY = startY + CHUNK_SIZE * TILE_SIZE;
 
-  private clearChunkTiles(chunkX: number, chunkY: number) {
-    const chunkKey = `${chunkX},${chunkY}`;
+      // Create a temporary array to store tiles to be removed
+      const tilesToRemove: Phaser.GameObjects.GameObject[] = [];
 
-    if (this.chunkTiles.has(chunkKey)) {
-      const tiles = this.chunkTiles.get(chunkKey)!;
+      // Find all tiles in this chunk
+      this.tilesGroup.getChildren().forEach((tile: any) => {
+        const tileX = tile.x;
+        const tileY = tile.y;
 
-      // Destroy all tiles in this chunk
-      tiles.forEach(tile => {
-        this.tilesGroup.remove(tile, true);
+        // Check if this tile belongs to the chunk we're unloading
+        if (
+          tileX >= startX &&
+          tileX < endX &&
+          tileY >= startY &&
+          tileY < endY
+        ) {
+          tilesToRemove.push(tile);
+        }
+      });
+
+      // Remove all tiles at once - destroy each tile individually
+      tilesToRemove.forEach(tile => {
         tile.destroy();
       });
 
-      this.chunkTiles.delete(chunkKey);
+      // Remove from data structures
+      delete this.chunks[chunkKey];
+      this.loadedChunks.delete(chunkKey);
     }
   }
 
-  /**
-   * Queues chunks for loading instead of loading them immediately.
-   * This prevents frame spikes from too many network requests at once.
-   */
-  private queueVisibleChunks(centerX: number, centerY: number) {
-    const camera = this.cameras.main;
-    const zoom = camera.zoom;
-    const screenWidth = this.scale.width;
-    const screenHeight = this.scale.height;
-    const worldWidth = screenWidth / zoom;
-    const worldHeight = screenHeight / zoom;
+  renderChunk(chunkX: number, chunkY: number, tiles: any[]) {
+    // Calculate the absolute world position for this chunk
+    const startX = chunkX * CHUNK_SIZE * TILE_SIZE;
+    const startY = chunkY * CHUNK_SIZE * TILE_SIZE;
 
-    // Calculate bounds with buffer (1.5x visible area)
-    const left = this.player.x - worldWidth * 0.75;
-    const right = this.player.x + worldWidth * 0.75;
-    const top = this.player.y - worldHeight * 0.75;
-    const bottom = this.player.y + worldHeight * 0.75;
+    // Create a batch of tiles to add all at once
+    const newTiles: Phaser.GameObjects.Rectangle[] = [];
 
-    // Convert to chunk coordinates
-    const chunkSize = CHUNK_SIZE * TILE_SIZE;
-    const leftChunk = Math.floor(left / chunkSize);
-    const rightChunk = Math.floor(right / chunkSize);
-    const topChunk = Math.floor(top / chunkSize);
-    const bottomChunk = Math.floor(bottom / chunkSize);
+    tiles.forEach((tile: any) => {
+      // Calculate absolute world position for this tile
+      const tileWorldX = startX + tile.x * TILE_SIZE;
+      const tileWorldY = startY + tile.y * TILE_SIZE;
 
-    // Clear existing queue and rebuild
-    this.pendingChunkQueue.length = 0;
+      const color = this.getTileColor(tile.type);
+      const tileRect = this.add.rectangle(
+        tileWorldX,
+        tileWorldY,
+        TILE_SIZE,
+        TILE_SIZE,
+        color
+      ).setOrigin(0);
 
-    // First pass: Identify all chunks that need loading
-    for (let x = leftChunk; x <= rightChunk; x++) {
-        for (let y = topChunk; y <= bottomChunk; y++) {
-            const chunkKey = `${x},${y}`;
-            
-            if (this.loadedChunks.has(chunkKey)) continue;
-            if (this.pendingChunks.has(chunkKey)) continue;
+      // Add to our local array
+      newTiles.push(tileRect);
+    });
 
-            // Use squared distance to avoid expensive sqrt
-            const dx = centerX - x;
-            const dy = centerY - y;
-            const distanceSquared = dx * dx + dy * dy;
-            
-            this.pendingChunkQueue.push({
-                x,
-                y,
-                distance: distanceSquared
-            });
-        }
-    }
-
-    // Sort by distance (closest first) - using squared distance
-    this.pendingChunkQueue.sort((a, b) => a.distance - b.distance);
+    // Add all tiles to the group at once
+    this.tilesGroup.addMultiple(newTiles);
   }
 
-  /**
-   * Processes the chunk queue with rate limiting to prevent frame spikes.
-   */
-  private processChunkQueue(currentTime: number) {
-    if (this.pendingChunkQueue.length === 0) return;
-    if (currentTime < this.chunkLoadCooldown) return;
-
-    // Load chunks in smaller batches to maintain smooth framerate
-    const MAX_CHUNKS_PER_BATCH = 2;
-    let chunksLoadedThisBatch = 0;
-
-    while (this.pendingChunkQueue.length > 0 && chunksLoadedThisBatch < MAX_CHUNKS_PER_BATCH) {
-        const chunk = this.pendingChunkQueue.shift()!;
-        const chunkKey = `${chunk.x},${chunk.y}`;
-        
-        // Double-check it's still needed (might have been loaded by server in the meantime)
-        if (!this.loadedChunks.has(chunkKey) && !this.pendingChunks.has(chunkKey)) {
-            this.pendingChunks.add(chunkKey);
-            this.network.send({ type: 'requestChunk', x: chunk.x, y: chunk.y });
-            chunksLoadedThisBatch++;
-        }
+  getTileColor(type: string) {
+    switch (type) {
+      case "grass": return 0x00ff00;
+      case "rock": return 0xaaaaaa;
+      case "forest": return 0x006600;
+      case "water": return 0x0000ff;
+      case "desert": return 0xffcc00;
+      default: return 0xffffff;
     }
+  }
 
-    // Set cooldown for next batch
-    this.chunkLoadCooldown = currentTime + this.CHUNK_LOAD_INTERVAL;
+  renderPlayers(playersData: Record<string, { x: number; y: number }>) {
+    // Remove players that no longer exist
+    Object.keys(this.players).forEach((id) => {
+      if (!playersData[id] && id !== this.playerId) {
+        this.players[id].destroy();
+        delete this.players[id];
+      }
+    });
+
+    // Update or create other players
+    Object.entries(playersData).forEach(([id, { x, y }]) => {
+      if (id === this.playerId) return; // Skip rendering this client's player
+
+      if (this.players[id]) {
+        // Update existing player position
+        this.players[id].setPosition(x, y);
+      } else {
+        // Create new player rectangle
+        this.players[id] = this.add.rectangle(x, y, TILE_SIZE, TILE_SIZE, 0xff00ff).setDepth(1);
+      }
+    });
   }
 
   /**
@@ -401,7 +373,6 @@ export class GameScene extends Phaser.Scene {
     return {
       loadedChunks: this.loadedChunks.size,
       pendingChunks: this.pendingChunks.size,
-      queuedChunks: this.pendingChunkQueue.length,
       tiles: this.tilesGroup.getChildren().length,
       players: Object.keys(this.players).length
     };
@@ -436,56 +407,8 @@ public getPerformanceStats() {
     const stats = this.getMemoryStats();
     console.log(
       `Memory: ${stats.loadedChunks} chunks, ${stats.pendingChunks} pending, ` +
-      `${stats.queuedChunks} queued, ${stats.tiles} tiles, ${stats.players} players`
+      `${stats.tiles} tiles, ${stats.players} players`
     );
-  }
-
-  /**
-   * Renders all players except the local player.
-   * Updates positions or creates new rectangles for new players.
-   * Removes players that are no longer present.
-   */
-  private renderPlayers(playersData: Record<string, { x: number; y: number }>) {
-    // Remove players that are no longer present
-    Object.keys(this.players).forEach(id => {
-      if (!playersData[id] && id !== this.playerId) {
-        this.players[id].destroy();
-        delete this.players[id];
-      }
-    });
-
-    // Update or create player rectangles for each player in the data
-    Object.entries(playersData).forEach(([id, { x, y }]) => {
-      if (id === this.playerId) return; // Skip local player
-
-      if (this.players[id]) {
-        this.players[id].setPosition(x, y);
-      } else {
-        this.players[id] = this.add.rectangle(x, y, TILE_SIZE, TILE_SIZE, 0xff00ff)
-          .setDepth(5);
-      }
-    });
-  }
-
-  /**
-   * Handles disconnect event from the server.
-   */
-  private handleDisconnect() {
-    console.warn('Disconnected from server');
-  }
-
-  /**
-   * Returns a color for a given tile type.
-   */
-  private getTileColor(type: string): number {
-    switch (type) {
-      case "grass": return 0x00ff00;
-      case "rock": return 0xaaaaaa;
-      case "forest": return 0x006600;
-      case "water": return 0x0000ff;
-      case "desert": return 0xffcc00;
-      default: return 0xffffff;
-    }
   }
 }
 
