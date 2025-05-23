@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { GameLogic, TileType, ChunkData, PlayerData } from '../src/logic/GameLogic';
+import { ChunkData, GameLogic, TileType } from '../src/logic/GameLogic';
+
 
 describe('GameLogic', () => {
   let game: GameLogic;
