@@ -7,6 +7,7 @@ export const TILE_SIZE = 8;
 export const CHUNK_SIZE = 10;
 export const CHUNK_BUFFER = 1;
 const DEBUG_MODE = true;
+const FRAME_HISTORY_SIZE = 300; 
 
 export class GameScene extends Phaser.Scene {
   public network!: INetworkAdapter;
@@ -20,11 +21,27 @@ export class GameScene extends Phaser.Scene {
   private lastPlayerChunkX: number = 0;
   private lastPlayerChunkY: number = 0;
 
+  // Performance stats - optimized
+  private frameTimes: number[] = [];
+  private frameTimeIndex: number = 0;
+  private perfStats = {
+    frameCount: 0,
+    averageFrameTime: 0,
+  }
+
+
+  // Chunk loading optimization
+  private chunkLoadCooldown: number = 0;
+  private readonly CHUNK_LOAD_INTERVAL = 100; // ms between chunk loading batches
+  private pendingChunkQueue: {x: number, y: number, distance: number}[] = [];
 
   private chunkTiles: Map<string, Phaser.GameObjects.Rectangle[]> = new Map()
 
   constructor() {
     super({ key: 'GameScene' });
+    // Pre-allocate frame times array
+    this.frameTimes = new Array(FRAME_HISTORY_SIZE).fill(0);
+    this.frameTimeIndex = 0;
   }
 
   preload() {
@@ -42,8 +59,6 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(20);
 
-
-
     // Create tiles group
     this.tilesGroup = this.add.group();
 
@@ -57,7 +72,6 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player);
     this.cameras.main.setZoom(2);
 
-
     this.network.connect()
       .then(() => {
         loadingText.destroy();
@@ -68,7 +82,14 @@ export class GameScene extends Phaser.Scene {
       })
   }
 
-  update() {
+  update(time: number, delta: number) {
+     // Track frame timing
+    this.frameTimes[this.frameTimeIndex] = delta;
+    this.frameTimeIndex = (this.frameTimeIndex + 1) % this.frameTimes.length;
+    
+    // Performance counter
+    this.perfStats.frameCount++;
+
     const speed = 2;
     const prevX = this.player.x;
     const prevY = this.player.y;
@@ -82,6 +103,9 @@ export class GameScene extends Phaser.Scene {
       this.sendPositionUpdate();
       this.updateVisibleChunks();
     }
+
+    // Process chunk queue with cooldown
+    this.processChunkQueue(time);
   }
 
   private sendPositionUpdate() {
@@ -92,10 +116,8 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Debug memory usage periodically if in DEBUG_MODE
-    if (DEBUG_MODE) {
-      if (this.time.now % 1000 < 50) {
-        this.debugMemoryUsage();
-      }
+    if (DEBUG_MODE && this.perfStats.frameCount % 60 === 0) {
+      this.debugMemoryUsage();
     }
   }
 
@@ -112,16 +134,25 @@ export class GameScene extends Phaser.Scene {
         break;
 
       case 'chunkData':
-        this.handleChunkData(message.chunk);
+        this.handleChunkData(message.chunk, message.terrainTypes);
+        break;
+
+      case 'chunkDataCompressed':
+        // Handle binary compressed data (if implemented)
+        console.log(`Received compressed chunk data: ${message.size} bytes`);
         break;
 
       case 'playerUpdate':
-        this.renderPlayers(message.players);
+        if (message.delta) {
+          this.handleDeltaPlayerUpdate(message.players);
+        } else {
+          this.renderPlayers(message.players);
+        }
         break;
     }
   }
 
-  private handleChunkData(chunk: any) {
+  private handleChunkData(chunk: any, terrainTypes?: string[]) {
     const { x, y, tiles } = chunk;
     const chunkKey = `${x},${y}`;
 
@@ -130,9 +161,55 @@ export class GameScene extends Phaser.Scene {
 
     // Only render if not already loaded
     if (!this.loadedChunks.has(chunkKey)) {
-      this.renderChunk(x, y, tiles);
+      // Handle compressed tile format: [x, y, typeId, x, y, typeId, ...]
+      let processedTiles;
+      if (Array.isArray(tiles) && Array.isArray(tiles[0])) {
+        // Compact format: [[x, y, typeId], [x, y, typeId], ...]
+        processedTiles = tiles.map(([x, y, typeId]: number[]) => ({
+          x,
+          y,
+          type: terrainTypes ? terrainTypes[typeId] : `type_${typeId}`
+        }));
+      } else if (Array.isArray(tiles) && typeof tiles[0] === 'number') {
+        // Flat format: [x, y, typeId, x, y, typeId, ...]
+        processedTiles = [];
+        for (let i = 0; i < tiles.length; i += 3) {
+          processedTiles.push({
+            x: tiles[i],
+            y: tiles[i + 1],
+            type: terrainTypes ? terrainTypes[tiles[i + 2]] : `type_${tiles[i + 2]}`
+          });
+        }
+      } else {
+        // Standard format
+        processedTiles = tiles;
+      }
+
+      this.renderChunk(x, y, processedTiles);
       this.loadedChunks.add(chunkKey);
     }
+  }
+
+  private handleDeltaPlayerUpdate(deltaPlayers: Record<string, { x: number; y: number } | null>) {
+    Object.entries(deltaPlayers).forEach(([id, pos]) => {
+      if (id === this.playerId) return; // Skip local player
+
+      if (pos === null) {
+        // Player removed
+        if (this.players[id]) {
+          this.players[id].destroy();
+          delete this.players[id];
+        }
+      } else {
+        // Player added or moved
+        if (this.players[id]) {
+          this.players[id].setPosition(pos.x, pos.y);
+        } else {
+          this.players[id] = this.add.rectangle(pos.x, pos.y, TILE_SIZE, TILE_SIZE, 0xff00ff)
+            .setDepth(5);
+        }
+      }
+    });
   }
 
   private renderChunk(chunkX: number, chunkY: number, tiles: any[]) {
@@ -168,7 +245,7 @@ export class GameScene extends Phaser.Scene {
       this.lastPlayerChunkX = currentChunkX;
       this.lastPlayerChunkY = currentChunkY;
 
-      this.requestVisibleChunks(currentChunkX, currentChunkY);
+      this.queueVisibleChunks(currentChunkX, currentChunkY);
       this.unloadDistantChunks(currentChunkX, currentChunkY);
     }
   }
@@ -237,20 +314,15 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-
   /**
-   * Requests all chunks that should be visible around the player.
-   * Chunks are sorted by distance from the center so closer ones are loaded first.
+   * Queues chunks for loading instead of loading them immediately.
+   * This prevents frame spikes from too many network requests at once.
    */
-  private requestVisibleChunks(centerX: number, centerY: number) {
+  private queueVisibleChunks(centerX: number, centerY: number) {
     const camera = this.cameras.main;
     const zoom = camera.zoom;
-
-    // Calculate visible area in world pixels
     const screenWidth = this.scale.width;
     const screenHeight = this.scale.height;
-
-    // Convert screen dimensions to world dimensions
     const worldWidth = screenWidth / zoom;
     const worldHeight = screenHeight / zoom;
 
@@ -267,39 +339,59 @@ export class GameScene extends Phaser.Scene {
     const topChunk = Math.floor(top / chunkSize);
     const bottomChunk = Math.floor(bottom / chunkSize);
 
-    // Track chunks we're about to request in this frame
-    const chunksBeingRequestedThisFrame = new Set<string>();
+    // Clear existing queue and rebuild
+    this.pendingChunkQueue.length = 0;
 
-    // Loop through all chunk coordinates in the visible area
+    // First pass: Identify all chunks that need loading
     for (let x = leftChunk; x <= rightChunk; x++) {
-      for (let y = topChunk; y <= bottomChunk; y++) {
-        const chunkKey = `${x},${y}`;
+        for (let y = topChunk; y <= bottomChunk; y++) {
+            const chunkKey = `${x},${y}`;
+            
+            if (this.loadedChunks.has(chunkKey)) continue;
+            if (this.pendingChunks.has(chunkKey)) continue;
 
-        // Skip if already loaded or pending from previous frames
-        if (this.loadedChunks.has(chunkKey)) continue;
-        if (this.pendingChunks.has(chunkKey)) continue;
-
-        // Mark as being requested in this frame
-        chunksBeingRequestedThisFrame.add(chunkKey);
-      }
+            // Use squared distance to avoid expensive sqrt
+            const dx = centerX - x;
+            const dy = centerY - y;
+            const distanceSquared = dx * dx + dy * dy;
+            
+            this.pendingChunkQueue.push({
+                x,
+                y,
+                distance: distanceSquared
+            });
+        }
     }
 
-    // Convert to array and sort by distance from center (player's chunk)
-    const sortedChunks = Array.from(chunksBeingRequestedThisFrame).sort((a, b) => {
-      const [ax, ay] = a.split(',').map(Number);
-      const [bx, by] = b.split(',').map(Number);
-      // Use chunk coordinates for distance calculation
-      const distA = Phaser.Math.Distance.Between(centerX, centerY, ax, ay);
-      const distB = Phaser.Math.Distance.Between(centerX, centerY, bx, by);
-      return distA - distB;
-    });
+    // Sort by distance (closest first) - using squared distance
+    this.pendingChunkQueue.sort((a, b) => a.distance - b.distance);
+  }
 
-    // Request each chunk from the server, mark as pending
-    for (const chunkKey of sortedChunks) {
-      const [x, y] = chunkKey.split(',').map(Number);
-      this.pendingChunks.add(chunkKey);
-      this.network.send({ type: 'requestChunk', x, y });
+  /**
+   * Processes the chunk queue with rate limiting to prevent frame spikes.
+   */
+  private processChunkQueue(currentTime: number) {
+    if (this.pendingChunkQueue.length === 0) return;
+    if (currentTime < this.chunkLoadCooldown) return;
+
+    // Load chunks in smaller batches to maintain smooth framerate
+    const MAX_CHUNKS_PER_BATCH = 2;
+    let chunksLoadedThisBatch = 0;
+
+    while (this.pendingChunkQueue.length > 0 && chunksLoadedThisBatch < MAX_CHUNKS_PER_BATCH) {
+        const chunk = this.pendingChunkQueue.shift()!;
+        const chunkKey = `${chunk.x},${chunk.y}`;
+        
+        // Double-check it's still needed (might have been loaded by server in the meantime)
+        if (!this.loadedChunks.has(chunkKey) && !this.pendingChunks.has(chunkKey)) {
+            this.pendingChunks.add(chunkKey);
+            this.network.send({ type: 'requestChunk', x: chunk.x, y: chunk.y });
+            chunksLoadedThisBatch++;
+        }
     }
+
+    // Set cooldown for next batch
+    this.chunkLoadCooldown = currentTime + this.CHUNK_LOAD_INTERVAL;
   }
 
   /**
@@ -309,16 +401,42 @@ export class GameScene extends Phaser.Scene {
     return {
       loadedChunks: this.loadedChunks.size,
       pendingChunks: this.pendingChunks.size,
+      queuedChunks: this.pendingChunkQueue.length,
       tiles: this.tilesGroup.getChildren().length,
       players: Object.keys(this.players).length
     };
   }
 
+public getPerformanceStats() {
+    // Calculate stats from the circular buffer
+    let total = 0;
+    let count = 0;
+    let currentMax = 0;
+    
+    for (let i = 0; i < this.frameTimes.length; i++) {
+        const ft = this.frameTimes[i];
+        if (ft > 0) { // Only count initialized frames
+            total += ft;
+            count++;
+            if (ft > currentMax) {
+                currentMax = ft;
+            }
+        }
+    }
+    
+    return {
+        frameCount: this.perfStats.frameCount,
+        averageFrameTime: count > 0 ? total / count : 0,
+        maxFrameTime: currentMax,
+        recentFrames: [...this.frameTimes] // Clone array
+    };
+}
+
   private debugMemoryUsage() {
     const stats = this.getMemoryStats();
     console.log(
       `Memory: ${stats.loadedChunks} chunks, ${stats.pendingChunks} pending, ` +
-      `${stats.tiles} tiles, ${stats.players} players`
+      `${stats.queuedChunks} queued, ${stats.tiles} tiles, ${stats.players} players`
     );
   }
 
@@ -370,3 +488,4 @@ export class GameScene extends Phaser.Scene {
     }
   }
 }
+
