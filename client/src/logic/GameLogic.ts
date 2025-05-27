@@ -1,0 +1,346 @@
+import { INetworkAdapter } from "../network/INetworkAdapter";
+import { NetworkFactory } from "../network/NetworkFactory";
+
+export interface PlayerData {
+  x: number;
+  y: number;
+}
+
+export interface ChunkData {
+  x: number;
+  y: number;
+  tiles: TileData[];
+}
+
+export interface TileData {
+  x: number;
+  y: number;
+  type: TileType;
+}
+
+export type TileType = "grass" | "rock" | "forest" | "water" | "desert";
+
+export interface Viewport {
+  width: number;
+  height: number;
+  zoom: number;
+}
+
+export interface PerformanceStats {
+  frameCount: number;
+  averageFrameTime: number;
+  maxFrameTime: number;
+  recentFrames: number[];
+}
+
+export interface MemoryStats {
+  loadedChunks: number;
+  pendingChunks: number;
+  players: number;
+}
+
+export const CHUNK_SIZE: number = 10;
+export const TILE_SIZE: number = 8;
+export const CHUNK_BUFFER: number = 1;
+export const MAX_PENDING_REQUESTS: number = 4;
+export const FRAME_HISTORY_SIZE: number = 300;
+
+export class GameLogic {
+  // Configuration
+
+
+  // Game state
+  public chunks: Record<string, ChunkData> = {};
+  public loadedChunks: Set<string> = new Set();
+  public pendingChunks: Set<string> = new Set();
+  public players: Record<string, PlayerData> = {};
+  public playerId: string = '';
+  public playerPosition: PlayerData = { x: 0, y: 0 };
+  public lastVisibleChunks: string[] = [];
+  public lastPlayerChunkX: number = 0;
+  public lastPlayerChunkY: number = 0;
+  public lastChunkCheck: number = 0;
+
+  // Viewport settings
+  public viewport: Viewport = {
+    width: 800,  // Default values for testing
+    height: 600,
+    zoom: 2
+  };
+
+  // Performance tracking
+  private frameTimes: number[] = new Array(FRAME_HISTORY_SIZE).fill(0);
+  private frameTimeIndex: number = 0;
+  private perfStats = {
+    frameCount: 0,
+    averageFrameTime: 0,
+  };
+
+  // Network
+  private networkAdapter: INetworkAdapter;
+
+  constructor() {
+    this.networkAdapter = NetworkFactory.createAdapter();
+    this.connect();
+  }
+
+  public async connect() {
+    await this.networkAdapter.connect();
+    this.networkAdapter.onMessage(this.handleNetworkMessage.bind(this));
+  }
+
+  private handleNetworkMessage(data: unknown) {
+    const message = data as any;
+
+    if (message.type === "chunkData") {
+      const { x, y, tiles } = message.chunk;
+      const chunkKey = `${x},${y}`;
+      this.processChunkData({ x, y, tiles });
+      this.loadedChunks.add(chunkKey);
+      this.pendingChunks.delete(chunkKey);
+      this.checkPendingChunks();
+    } else if (message.type === "connected") {
+      this.playerId = message.id;
+      this.updatePlayers(message.players);
+    } else if (message.type === "playerUpdate") {
+      this.updatePlayers(message.players);
+    }
+  }
+
+  // Chunk management
+  public updateVisibleChunks(): void {
+    const visibleChunks = this.getVisibleChunkKeys();
+
+    // Check if visible chunks have changed
+    if (this.chunksChanged(visibleChunks)) {
+      this.lastVisibleChunks = visibleChunks;
+      this.checkPendingChunks();
+      this.unloadDistantChunks();
+    }
+  }
+
+  public chunksChanged(newChunks: string[]): boolean {
+    if (newChunks.length !== this.lastVisibleChunks.length) {
+      return true;
+    }
+
+    const newSorted = [...newChunks].sort();
+    const lastSorted = [...this.lastVisibleChunks].sort();
+
+    for (let i = 0; i < newSorted.length; i++) {
+      if (newSorted[i] !== lastSorted[i]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  public getVisibleChunkKeys(): string[] {
+    const centerX = this.playerPosition.x;
+    const centerY = this.playerPosition.y;
+
+    // Calculate visible area
+    const halfWidth = (this.viewport.width / this.viewport.zoom) / 2;
+    const halfHeight = (this.viewport.height / this.viewport.zoom) / 2;
+
+    const cameraBounds = {
+      left: centerX - halfWidth,
+      right: centerX + halfWidth,
+      top: centerY - halfHeight,
+      bottom: centerY + halfHeight
+    };
+
+    // Convert to chunk coordinates with buffer
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
+    const startChunkX = Math.floor(cameraBounds.left / chunkSize) - CHUNK_BUFFER;
+    const endChunkX = Math.floor(cameraBounds.right / chunkSize) + CHUNK_BUFFER;
+    const startChunkY = Math.floor(cameraBounds.top / chunkSize) - CHUNK_BUFFER;
+    const endChunkY = Math.floor(cameraBounds.bottom / chunkSize) + CHUNK_BUFFER;
+
+    // Generate list of visible chunks
+    const visibleChunks: string[] = [];
+    for (let x = startChunkX; x <= endChunkX; x++) {
+      for (let y = startChunkY; y <= endChunkY; y++) {
+        visibleChunks.push(`${x},${y}`);
+      }
+    }
+
+    return visibleChunks;
+  }
+
+  public checkPendingChunks(): string[] {
+    if (this.networkAdapter.readyState !== 'open') return [];
+
+    const visibleChunks = this.getVisibleChunkKeys();
+    const chunksToRequest = visibleChunks.filter(
+      chunkKey => !this.loadedChunks.has(chunkKey) && !this.pendingChunks.has(chunkKey)
+    );
+
+    const availableSlots = MAX_PENDING_REQUESTS - this.pendingChunks.size;
+    if (availableSlots > 0 && chunksToRequest.length > 0) {
+      const chunksToLoad = chunksToRequest.slice(0, availableSlots);
+
+      for (const chunkKey of chunksToLoad) {
+        const [x, y] = chunkKey.split(',').map(Number);
+        this.networkAdapter.send({ type: "requestChunk", x, y });
+        this.pendingChunks.add(chunkKey);
+      }
+
+      return chunksToLoad;
+    }
+    return [];
+  }
+
+  public addPendingChunks(chunkKeys: string[]): void {
+    chunkKeys.forEach(key => {
+      if (!this.loadedChunks.has(key) && !this.pendingChunks.has(key)) {
+        this.pendingChunks.add(key);
+      }
+    });
+    this.checkPendingChunks();
+  }
+
+  public unloadDistantChunks(): string[] {
+    const unloadBuffer = CHUNK_BUFFER + 2;
+    const centerX = this.playerPosition.x;
+    const centerY = this.playerPosition.y;
+    const halfWidth = (this.viewport.width / this.viewport.zoom) / 2;
+    const halfHeight = (this.viewport.height / this.viewport.zoom) / 2;
+
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
+    const minX = Math.floor((centerX - halfWidth) / chunkSize) - unloadBuffer;
+    const maxX = Math.floor((centerX + halfWidth) / chunkSize) + unloadBuffer;
+    const minY = Math.floor((centerY - halfHeight) / chunkSize) - unloadBuffer;
+    const maxY = Math.floor((centerY + halfHeight) / chunkSize) + unloadBuffer;
+
+    const chunksToUnload: string[] = [];
+    const loadedChunkKeys = Array.from(this.loadedChunks);
+
+    for (const chunkKey of loadedChunkKeys) {
+      const [x, y] = chunkKey.split(',').map(Number);
+      if (x < minX || x > maxX || y < minY || y > maxY) {
+        chunksToUnload.push(chunkKey);
+      }
+    }
+
+    return chunksToUnload;
+  }
+
+  public removeChunks(chunkKeys: string[]): void {
+    chunkKeys.forEach(key => {
+      this.loadedChunks.delete(key);
+      delete this.chunks[key];
+    });
+  }
+
+  public processChunkData(chunkData: ChunkData): string {
+    const { x, y } = chunkData;
+    const chunkKey = `${x},${y}`;
+    this.chunks[chunkKey] = chunkData;
+    this.loadedChunks.add(chunkKey);
+    this.pendingChunks.delete(chunkKey);
+    return chunkKey;
+  }
+
+  public getTileColor(type: TileType): number {
+    switch (type) {
+      case "grass": return 0x00ff00;
+      case "rock": return 0xaaaaaa;
+      case "forest": return 0x006600;
+      case "water": return 0x0000ff;
+      case "desert": return 0xffcc00;
+      default: return 0xffffff;
+    }
+  }
+
+  // Player management
+  public updatePlayers(playersData: Record<string, PlayerData>): void {
+    // Remove players that no longer exist
+    Object.keys(this.players).forEach(id => {
+      if (!playersData[id] && id !== this.playerId) {
+        delete this.players[id];
+      }
+    });
+
+    // Update or add players
+    Object.entries(playersData).forEach(([id, data]) => {
+      if (id !== this.playerId) {
+        this.players[id] = data;
+      } else {
+        // Update our own position if it came from server
+        this.playerPosition = data;
+      }
+    });
+  }
+
+  public updatePlayerPosition(x: number, y: number): void {
+    this.playerPosition = { x, y };
+    this.networkAdapter.send({ type: "move", x, y });
+  }
+
+  public updateViewport(width: number, height: number, zoom: number): void {
+    this.viewport = { width, height, zoom };
+  }
+
+  // Performance tracking
+  public updateFrameTime(delta: number): void {
+    this.frameTimes[this.frameTimeIndex] = delta;
+    this.frameTimeIndex = (this.frameTimeIndex + 1) % FRAME_HISTORY_SIZE;
+    this.perfStats.frameCount++;
+  }
+
+  public getPerformanceStats(): PerformanceStats {
+    let total = 0;
+    let count = 0;
+    let currentMax = 0;
+
+    for (let i = 0; i < this.frameTimes.length; i++) {
+      const ft = this.frameTimes[i];
+      if (ft > 0) {
+        total += ft;
+        count++;
+        if (ft > currentMax) {
+          currentMax = ft;
+        }
+      }
+    }
+
+    return {
+      frameCount: this.perfStats.frameCount,
+      averageFrameTime: count > 0 ? total / count : 0,
+      maxFrameTime: currentMax,
+      recentFrames: [...this.frameTimes]
+    };
+  }
+
+  public getMemoryStats(): MemoryStats {
+    return {
+      loadedChunks: this.loadedChunks.size,
+      pendingChunks: this.pendingChunks.size,
+      players: Object.keys(this.players).length
+    };
+  }
+
+  // Helper methods
+  public shouldUpdateChunks(): boolean {
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
+    const currentChunkX = Math.floor(this.playerPosition.x / chunkSize);
+    const currentChunkY = Math.floor(this.playerPosition.y / chunkSize);
+    const now = Date.now();
+    const throttleTime = 100;
+
+    return (
+      currentChunkX !== this.lastPlayerChunkX ||
+      currentChunkY !== this.lastPlayerChunkY ||
+      (now - this.lastChunkCheck > throttleTime && this.pendingChunks.size === 0)
+    );
+  }
+
+  public updateChunkTracking(): void {
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
+    this.lastPlayerChunkX = Math.floor(this.playerPosition.x / chunkSize);
+    this.lastPlayerChunkY = Math.floor(this.playerPosition.y / chunkSize);
+    this.lastChunkCheck = Date.now();
+  }
+}

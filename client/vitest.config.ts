@@ -2,7 +2,7 @@ export default {
   test: {
     sequence: {
       hooks: 'stack', 
-      setupFiles: 'list' 
+      setupFiles: 'list' ,
     },
   }
 }

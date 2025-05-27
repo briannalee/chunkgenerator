@@ -1,60 +1,67 @@
 import { INetworkAdapter } from "./INetworkAdapter";
+
 export class WebSocketAdapter implements INetworkAdapter {
-  private socket: WebSocket;
-  private messageCallbacks: Array<(data: unknown) => void> = [];
-  private disconnectCallbacks: Array<() => void> = [];
-  
-  constructor(private url: string) {
-    this.socket = new WebSocket(url);
-    this.socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data.toString());
-        this.messageCallbacks.forEach(cb => cb(data));
-      } catch (error) {
-        console.error('Failed to parse message:', error);
-      }
-    };
-    this.socket.onclose = () => {
-      this.disconnectCallbacks.forEach(cb => cb());
-    };
-  }
+  private socket: WebSocket | null = null;
+  private messageCallback: ((data: unknown) => void) | null = null;
+  private disconnectCallback: (() => void) | null = null;
+  readyState: "connecting" | "open" | "closing" | "closed" = "closed";
+
+  constructor(private url: string) {}
 
   async connect(): Promise<void> {
-    if (this.socket.readyState === WebSocket.OPEN) return Promise.resolve();
-    
     return new Promise((resolve, reject) => {
-      this.socket.onopen = () => resolve();
-      this.socket.onerror = (error) => reject(error);
+      this.readyState = "connecting";
+      this.socket = new WebSocket(this.url);
+      
+      this.socket.onopen = () => {
+        this.readyState = "open";
+        resolve();
+      };
+      
+      this.socket.onerror = (error) => {
+        this.readyState = "closed";
+        reject(error);
+      };
+      
+      this.socket.onclose = () => {
+        this.readyState = "closed";
+        if (this.disconnectCallback) {
+          this.disconnectCallback();
+        }
+      };
+      
+      this.socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (this.messageCallback) {
+            this.messageCallback(data);
+          }
+        } catch (error) {
+          console.error("Error parsing WebSocket message:", error);
+        }
+      };
     });
   }
 
   disconnect(): void {
-    this.socket.close();
+    if (this.socket) {
+      this.readyState = "closing";
+      this.socket.close();
+      this.socket = null;
+    }
   }
 
   send(data: unknown): void {
-    if (this.socket.readyState !== WebSocket.OPEN) {
-      console.warn('Trying to send while connection is not open');
-      return;
+    if (this.socket && this.readyState === "open") {
+      this.socket.send(JSON.stringify(data));
     }
-    this.socket.send(JSON.stringify(data));
   }
 
   onMessage(callback: (data: unknown) => void): void {
-    this.messageCallbacks.push(callback);
+    this.messageCallback = callback;
   }
 
   onDisconnect(callback: () => void): void {
-    this.disconnectCallbacks.push(callback);
-  }
-
-  get readyState() {
-    switch (this.socket.readyState) {
-      case WebSocket.CONNECTING: return 'connecting';
-      case WebSocket.OPEN: return 'open';
-      case WebSocket.CLOSING: return 'closing';
-      case WebSocket.CLOSED: return 'closed';
-      default: return 'closed';
-    }
+    this.disconnectCallback = callback;
   }
 }
