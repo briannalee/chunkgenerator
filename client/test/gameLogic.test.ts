@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ChunkData, GameLogic, TileType } from '../src/logic/GameLogic';
+import { ChunkData, GameLogic, TileType, CHUNK_SIZE, MAX_PENDING_REQUESTS, TILE_SIZE} from '../src/logic/GameLogic';
 
 
 describe('GameLogic', () => {
@@ -22,12 +22,12 @@ describe('GameLogic', () => {
   describe('chunksChanged', () => {
     it('detects when chunk list changes', () => {
       game.lastVisibleChunks = ['0,0', '1,0'];
-      expect(game['chunksChanged'](['0,0', '1,1'])).toBe(true);
+      expect(game.chunksChanged(['0,0', '1,1'])).toBe(true);
     });
 
     it('detects when chunk list stays the same', () => {
       game.lastVisibleChunks = ['0,0', '1,0'];
-      expect(game['chunksChanged'](['1,0', '0,0'])).toBe(false);
+      expect(game.chunksChanged(['1,0', '0,0'])).toBe(false);
     });
   });
 
@@ -36,7 +36,7 @@ describe('GameLogic', () => {
       const visible = game.getVisibleChunkKeys();
       const pending = game.checkPendingChunks();
       expect(pending.every(k => visible.includes(k))).toBe(true);
-      expect(pending.length).toBeLessThanOrEqual(game.MAX_PENDING_REQUESTS);
+      expect(pending.length).toBeLessThanOrEqual(MAX_PENDING_REQUESTS);
     });
   });
 
@@ -139,7 +139,7 @@ describe('GameLogic', () => {
     it('determines if chunk update is needed and updates tracking', () => {
       expect(game.shouldUpdateChunks()).toBe(true);
       game.updateChunkTracking();
-      expect(game.lastPlayerChunkX).toBe(Math.floor(game.playerPosition.x / (game.CHUNK_SIZE * game.TILE_SIZE)));
+      expect(game.lastPlayerChunkX).toBe(Math.floor(game.playerPosition.x / (CHUNK_SIZE * TILE_SIZE)));
     });
   });
 });

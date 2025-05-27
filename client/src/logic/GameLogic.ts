@@ -1,58 +1,97 @@
-import { INetworkAdapter } from "@/network/INetworkAdapter";
+import { INetworkAdapter } from "../network/INetworkAdapter";
+import { NetworkFactory } from "../network/NetworkFactory";
+
+export interface PlayerData {
+  x: number;
+  y: number;
+}
+
+export interface ChunkData {
+  x: number;
+  y: number;
+  tiles: TileData[];
+}
+
+export interface TileData {
+  x: number;
+  y: number;
+  type: TileType;
+}
+
+export type TileType = "grass" | "rock" | "forest" | "water" | "desert";
+
+export interface Viewport {
+  width: number;
+  height: number;
+  zoom: number;
+}
+
+export interface PerformanceStats {
+  frameCount: number;
+  averageFrameTime: number;
+  maxFrameTime: number;
+  recentFrames: number[];
+}
+
+export interface MemoryStats {
+  loadedChunks: number;
+  pendingChunks: number;
+  players: number;
+}
+
+export const CHUNK_SIZE: number = 10;
+export const TILE_SIZE: number = 8;
+export const CHUNK_BUFFER: number = 1;
+export const MAX_PENDING_REQUESTS: number = 4;
+export const FRAME_HISTORY_SIZE: number = 300;
 
 export class GameLogic {
-  playerPosition: { x: number; y: number; } = { x: 0, y: 0 };
-  viewport: { width: number; height: number; zoom: number; } = { width: 0, height: 0, zoom: 1 };
-  lastVisibleChunks: string[] = [];
-  pendingChunks: Set<string> = new Set();
-  loadedChunks: Set<string> = new Set();
-  chunks: Record<string, any> = {};
-  playerId: string = '';
-  players: Record<string, { x: number; y: number }> = {};
-  CHUNK_SIZE: number;
-  TILE_SIZE: number;
-  CHUNK_BUFFER: number;
-  MAX_PENDING_REQUESTS: number;
-  lastPlayerChunkX: number = 0;
-  lastPlayerChunkY: number = 0;
-  lastChunkCheck: number = 0;
-  private networkAdapter: INetworkAdapter;
+  // Configuration
+
+
+  // Game state
+  public chunks: Record<string, ChunkData> = {};
+  public loadedChunks: Set<string> = new Set();
+  public pendingChunks: Set<string> = new Set();
+  public players: Record<string, PlayerData> = {};
+  public playerId: string = '';
+  public playerPosition: PlayerData = { x: 0, y: 0 };
+  public lastVisibleChunks: string[] = [];
+  public lastPlayerChunkX: number = 0;
+  public lastPlayerChunkY: number = 0;
+  public lastChunkCheck: number = 0;
+
+  // Viewport settings
+  public viewport: Viewport = {
+    width: 800,  // Default values for testing
+    height: 600,
+    zoom: 2
+  };
 
   // Performance tracking
-  private frameTimes: number[] = [];
+  private frameTimes: number[] = new Array(FRAME_HISTORY_SIZE).fill(0);
   private frameTimeIndex: number = 0;
-  private FRAME_HISTORY_SIZE: number;
   private perfStats = {
     frameCount: 0,
     averageFrameTime: 0,
+  };
+
+  // Network
+  private networkAdapter: INetworkAdapter;
+
+  constructor() {
+    this.networkAdapter = NetworkFactory.createAdapter();
+    this.connect();
   }
 
-  constructor(
-    networkAdapter: INetworkAdapter,
-    config: {
-      CHUNK_SIZE: number,
-      TILE_SIZE: number,
-      CHUNK_BUFFER: number,
-      MAX_PENDING_REQUESTS: number,
-      FRAME_HISTORY_SIZE: number
-    }
-  ) {
-    this.networkAdapter = networkAdapter;
-    this.CHUNK_SIZE = config.CHUNK_SIZE;
-    this.TILE_SIZE = config.TILE_SIZE;
-    this.CHUNK_BUFFER = config.CHUNK_BUFFER;
-    this.MAX_PENDING_REQUESTS = config.MAX_PENDING_REQUESTS;
-    this.FRAME_HISTORY_SIZE = config.FRAME_HISTORY_SIZE;
-    this.frameTimes = new Array(this.FRAME_HISTORY_SIZE).fill(0);
-    this.frameTimeIndex = 0;
-
-    // Set up network message handling
+  public async connect() {
+    await this.networkAdapter.connect();
     this.networkAdapter.onMessage(this.handleNetworkMessage.bind(this));
   }
 
   private handleNetworkMessage(data: unknown) {
     const message = data as any;
-    
+
     if (message.type === "chunkData") {
       const { x, y, tiles } = message.chunk;
       const chunkKey = `${x},${y}`;
@@ -68,9 +107,40 @@ export class GameLogic {
     }
   }
 
-  getVisibleChunkKeys() {
+  // Chunk management
+  public updateVisibleChunks(): void {
+    const visibleChunks = this.getVisibleChunkKeys();
+
+    // Check if visible chunks have changed
+    if (this.chunksChanged(visibleChunks)) {
+      this.lastVisibleChunks = visibleChunks;
+      this.checkPendingChunks();
+      this.unloadDistantChunks();
+    }
+  }
+
+  public chunksChanged(newChunks: string[]): boolean {
+    if (newChunks.length !== this.lastVisibleChunks.length) {
+      return true;
+    }
+
+    const newSorted = [...newChunks].sort();
+    const lastSorted = [...this.lastVisibleChunks].sort();
+
+    for (let i = 0; i < newSorted.length; i++) {
+      if (newSorted[i] !== lastSorted[i]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  public getVisibleChunkKeys(): string[] {
     const centerX = this.playerPosition.x;
     const centerY = this.playerPosition.y;
+
+    // Calculate visible area
     const halfWidth = (this.viewport.width / this.viewport.zoom) / 2;
     const halfHeight = (this.viewport.height / this.viewport.zoom) / 2;
 
@@ -81,13 +151,14 @@ export class GameLogic {
       bottom: centerY + halfHeight
     };
 
-    const chunkSize = this.CHUNK_SIZE * this.TILE_SIZE;
+    // Convert to chunk coordinates with buffer
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
+    const startChunkX = Math.floor(cameraBounds.left / chunkSize) - CHUNK_BUFFER;
+    const endChunkX = Math.floor(cameraBounds.right / chunkSize) + CHUNK_BUFFER;
+    const startChunkY = Math.floor(cameraBounds.top / chunkSize) - CHUNK_BUFFER;
+    const endChunkY = Math.floor(cameraBounds.bottom / chunkSize) + CHUNK_BUFFER;
 
-    const startChunkX = Math.floor(cameraBounds.left / chunkSize) - this.CHUNK_BUFFER;
-    const endChunkX = Math.floor(cameraBounds.right / chunkSize) + this.CHUNK_BUFFER;
-    const startChunkY = Math.floor(cameraBounds.top / chunkSize) - this.CHUNK_BUFFER;
-    const endChunkY = Math.floor(cameraBounds.bottom / chunkSize) + this.CHUNK_BUFFER;
-
+    // Generate list of visible chunks
     const visibleChunks: string[] = [];
     for (let x = startChunkX; x <= endChunkX; x++) {
       for (let y = startChunkY; y <= endChunkY; y++) {
@@ -98,15 +169,15 @@ export class GameLogic {
     return visibleChunks;
   }
 
-  checkPendingChunks() {
-    if (this.networkAdapter.readyState !== 'open') return;
+  public checkPendingChunks(): string[] {
+    if (this.networkAdapter.readyState !== 'open') return [];
 
     const visibleChunks = this.getVisibleChunkKeys();
     const chunksToRequest = visibleChunks.filter(
       chunkKey => !this.loadedChunks.has(chunkKey) && !this.pendingChunks.has(chunkKey)
     );
 
-    const availableSlots = this.MAX_PENDING_REQUESTS - this.pendingChunks.size;
+    const availableSlots = MAX_PENDING_REQUESTS - this.pendingChunks.size;
     if (availableSlots > 0 && chunksToRequest.length > 0) {
       const chunksToLoad = chunksToRequest.slice(0, availableSlots);
 
@@ -115,11 +186,14 @@ export class GameLogic {
         this.networkAdapter.send({ type: "requestChunk", x, y });
         this.pendingChunks.add(chunkKey);
       }
+
+      return chunksToLoad;
     }
+    return [];
   }
 
-  addPendingChunks(keys: string[]) {
-    keys.forEach(key => {
+  public addPendingChunks(chunkKeys: string[]): void {
+    chunkKeys.forEach(key => {
       if (!this.loadedChunks.has(key) && !this.pendingChunks.has(key)) {
         this.pendingChunks.add(key);
       }
@@ -127,39 +201,49 @@ export class GameLogic {
     this.checkPendingChunks();
   }
 
-  unloadDistantChunks() {
-    const unloadBuffer = this.CHUNK_BUFFER + 2;
+  public unloadDistantChunks(): string[] {
+    const unloadBuffer = CHUNK_BUFFER + 2;
     const centerX = this.playerPosition.x;
     const centerY = this.playerPosition.y;
     const halfWidth = (this.viewport.width / this.viewport.zoom) / 2;
     const halfHeight = (this.viewport.height / this.viewport.zoom) / 2;
 
-    const chunkSize = this.CHUNK_SIZE * this.TILE_SIZE;
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
     const minX = Math.floor((centerX - halfWidth) / chunkSize) - unloadBuffer;
     const maxX = Math.floor((centerX + halfWidth) / chunkSize) + unloadBuffer;
     const minY = Math.floor((centerY - halfHeight) / chunkSize) - unloadBuffer;
     const maxY = Math.floor((centerY + halfHeight) / chunkSize) + unloadBuffer;
 
+    const chunksToUnload: string[] = [];
     const loadedChunkKeys = Array.from(this.loadedChunks);
+
     for (const chunkKey of loadedChunkKeys) {
       const [x, y] = chunkKey.split(',').map(Number);
       if (x < minX || x > maxX || y < minY || y > maxY) {
-        this.unloadChunk(chunkKey);
+        chunksToUnload.push(chunkKey);
       }
     }
+
+    return chunksToUnload;
   }
 
-  private unloadChunk(chunkKey: string) {
-    delete this.chunks[chunkKey];
-    this.loadedChunks.delete(chunkKey);
+  public removeChunks(chunkKeys: string[]): void {
+    chunkKeys.forEach(key => {
+      this.loadedChunks.delete(key);
+      delete this.chunks[key];
+    });
   }
 
-  processChunkData(chunk: ChunkData) {
-    const chunkKey = `${chunk.x},${chunk.y}`;
-    this.chunks[chunkKey] = chunk.tiles;
+  public processChunkData(chunkData: ChunkData): string {
+    const { x, y } = chunkData;
+    const chunkKey = `${x},${y}`;
+    this.chunks[chunkKey] = chunkData;
+    this.loadedChunks.add(chunkKey);
+    this.pendingChunks.delete(chunkKey);
+    return chunkKey;
   }
 
-  getTileColor(type: string): number {
+  public getTileColor(type: TileType): number {
     switch (type) {
       case "grass": return 0x00ff00;
       case "rock": return 0xaaaaaa;
@@ -170,50 +254,67 @@ export class GameLogic {
     }
   }
 
-  updatePlayers(playersData: Record<string, { x: number; y: number }>) {
-    // Update player positions, but don't render here
-    // We'll keep the rendering in GameScene
-    Object.entries(playersData).forEach(([id, position]) => {
-      if (id === this.playerId) {
-        // Update our own position if it came from server
-        this.playerPosition = position;
+  // Player management
+  public updatePlayers(playersData: Record<string, PlayerData>): void {
+    // Remove players that no longer exist
+    Object.keys(this.players).forEach(id => {
+      if (!playersData[id] && id !== this.playerId) {
+        delete this.players[id];
+      }
+    });
+
+    // Update or add players
+    Object.entries(playersData).forEach(([id, data]) => {
+      if (id !== this.playerId) {
+        this.players[id] = data;
       } else {
-        this.players[id] = position;
+        // Update our own position if it came from server
+        this.playerPosition = data;
       }
     });
   }
 
-  updateFrameTime(delta: number) {
+  public updatePlayerPosition(x: number, y: number): void {
+    this.playerPosition = { x, y };
+    this.networkAdapter.send({ type: "move", x, y });
+  }
+
+  public updateViewport(width: number, height: number, zoom: number): void {
+    this.viewport = { width, height, zoom };
+  }
+
+  // Performance tracking
+  public updateFrameTime(delta: number): void {
     this.frameTimes[this.frameTimeIndex] = delta;
-    this.frameTimeIndex = (this.frameTimeIndex + 1) % this.frameTimes.length;
+    this.frameTimeIndex = (this.frameTimeIndex + 1) % FRAME_HISTORY_SIZE;
     this.perfStats.frameCount++;
   }
 
-  getPerformanceStats() {
+  public getPerformanceStats(): PerformanceStats {
     let total = 0;
     let count = 0;
     let currentMax = 0;
-    
+
     for (let i = 0; i < this.frameTimes.length; i++) {
-        const ft = this.frameTimes[i];
-        if (ft > 0) {
-            total += ft;
-            count++;
-            if (ft > currentMax) {
-                currentMax = ft;
-            }
+      const ft = this.frameTimes[i];
+      if (ft > 0) {
+        total += ft;
+        count++;
+        if (ft > currentMax) {
+          currentMax = ft;
         }
+      }
     }
-    
+
     return {
-        frameCount: this.perfStats.frameCount,
-        averageFrameTime: count > 0 ? total / count : 0,
-        maxFrameTime: currentMax,
-        recentFrames: [...this.frameTimes]
+      frameCount: this.perfStats.frameCount,
+      averageFrameTime: count > 0 ? total / count : 0,
+      maxFrameTime: currentMax,
+      recentFrames: [...this.frameTimes]
     };
   }
 
-  getMemoryStats() {
+  public getMemoryStats(): MemoryStats {
     return {
       loadedChunks: this.loadedChunks.size,
       pendingChunks: this.pendingChunks.size,
@@ -221,8 +322,9 @@ export class GameLogic {
     };
   }
 
-  shouldUpdateChunks(): boolean {
-    const chunkSize = this.CHUNK_SIZE * this.TILE_SIZE;
+  // Helper methods
+  public shouldUpdateChunks(): boolean {
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
     const currentChunkX = Math.floor(this.playerPosition.x / chunkSize);
     const currentChunkY = Math.floor(this.playerPosition.y / chunkSize);
     const now = Date.now();
@@ -235,32 +337,10 @@ export class GameLogic {
     );
   }
 
-  updateChunkTracking() {
-    const chunkSize = this.CHUNK_SIZE * this.TILE_SIZE;
+  public updateChunkTracking(): void {
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
     this.lastPlayerChunkX = Math.floor(this.playerPosition.x / chunkSize);
     this.lastPlayerChunkY = Math.floor(this.playerPosition.y / chunkSize);
     this.lastChunkCheck = Date.now();
   }
-
-  updatePlayerPosition(x: number, y: number) {
-    this.playerPosition = { x, y };
-    this.networkAdapter.send({ type: "move", x, y });
-  }
-
-  updateViewport(width: number, height: number, zoom: number) {
-    this.viewport = { width, height, zoom };
-  }
-}
-
-export type TileType = 'grass' | 'rock' | 'forest' | 'water' | 'desert';
-
-export interface ChunkData {
-  x: number;
-  y: number;
-  tiles: any[];
-}
-
-export interface PlayerData {
-  x: number;
-  y: number;
 }
