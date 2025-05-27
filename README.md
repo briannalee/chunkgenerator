@@ -15,13 +15,6 @@ cd server
 npm install
 ```
 
-#### Create `.env` file
-Create a `.env` file to configure the servers connection to MongoDB:
-```dotenv
-MONGO_URI=mongodb://localhost:27017/terrain_game
-PORT=8080
-```
-
 #### Start the Server
 Start the server with the following command:
 ```bash
