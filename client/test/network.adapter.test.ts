@@ -23,14 +23,24 @@ describe('WebSocket Network Adapter Tests', () => {
     expect(adapter.readyState.toLowerCase()).toBe('open');
   }, TEST_TIMEOUT);
 
-  it('should receive "connected" message after handshake', async () => {
+  it('should receive "handshake" message after handshake', async () => {
+    // connect
     const response = await new Promise((resolve) => {
       adapter.onMessage(data => resolve(data));
-      adapter.send({ type: 'handshake' });
     });
     expect(response).toMatchObject({
       type: 'connected',
       id: expect.any(String),
+    });
+
+    // send handshake message
+    adapter.send({ type: 'handshake' });
+    const handshakeResponse = await new Promise((resolve) => {
+      adapter.onMessage(data => resolve(data));
+    }
+    );
+    expect(handshakeResponse).toMatchObject({
+      type: 'handshook',
     });
   }, TEST_TIMEOUT);
 

@@ -76,17 +76,25 @@ async function handleMessage(
   if (message.type === "requestChunk") {
 
     const { x, y } = message;
+    if (typeof x !== "number" || typeof y !== "number" || isNaN(x) || isNaN(y)) {
+      sendResponse({ type: "error", message: "Invalid coordinates" });
+      return;
+    }
     let chunk = findChunk(x, y);
     if (!chunk) {
       const generatedChunk = generateChunk(x, y);
       saveChunk(generatedChunk);
       chunk = generatedChunk;
     }
+    console.log(`Chunk requested: ${x}, ${y} by player ${playerId}`);
     sendResponse({ type: "chunkData", chunk });
   } else if (message.type === "move") {
     const { x, y } = message;
     players[playerId] = { x, y };
     broadcastPlayerUpdate();
+  } else if (message.type === "handshake") {
+    // Handle handshake message
+    sendResponse({ type: "handshook", id: playerId, players });
   } else {
     console.log("Unknown message type:", message);
   }
