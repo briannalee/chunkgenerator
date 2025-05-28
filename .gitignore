@@ -562,3 +562,4 @@ Temporary Items
 # SQLite
 *.sqlite
 *.sqlite3
+*/*.db
