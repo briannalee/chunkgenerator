@@ -5,7 +5,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "start": "npx tsx src/server.ts"
+    "start": "npx tsx src/Server.ts"
   },
   "keywords": [],
   "author": "",
