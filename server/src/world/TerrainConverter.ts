@@ -1,4 +1,4 @@
-import { TerrainPoint, TerrainType } from './TerrainTypes';
+import { TerrainPoint, Biome } from './TerrainTypes';
 
 export interface SimpleTile {
   x: number;
@@ -28,28 +28,28 @@ export class TerrainConverter {
   private static terrainTypeToString(point: TerrainPoint): string {
     // Map our detailed terrain types to the simple types expected by the client
     switch (point.b) {
-      case TerrainType.OCEAN_DEEP:
-      case TerrainType.OCEAN_SHALLOW:
-      case TerrainType.RIVER:
-      case TerrainType.LAKE:
+      case Biome.OCEAN_DEEP:
+      case Biome.OCEAN_SHALLOW:
+      case Biome.RIVER:
+      case Biome.LAKE:
         return "water";
         
-      case TerrainType.BEACH:
-      case TerrainType.DESERT:
+      case Biome.BEACH:
+      case Biome.DESERT:
         return "desert";
         
-      case TerrainType.GRASSLAND:
-      case TerrainType.SAVANNA:
+      case Biome.GRASSLAND:
+      case Biome.SAVANNA:
         return "grass";
         
-      case TerrainType.FOREST:
-      case TerrainType.DENSE_FOREST:
-      case TerrainType.JUNGLE:
+      case Biome.FOREST:
+      case Biome.DENSE_FOREST:
+      case Biome.JUNGLE:
         return "forest";
         
-      case TerrainType.MOUNTAIN:
-      case TerrainType.MOUNTAIN_SNOW:
-      case TerrainType.CLIFF:
+      case Biome.MOUNTAIN:
+      case Biome.MOUNTAIN_SNOW:
+      case Biome.CLIFF:
         return "rock";
         
       default:

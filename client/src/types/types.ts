@@ -1,51 +1,75 @@
 export enum Biome {
-  OCEAN = 0,
-  BEACH = 1,
-  PLAINS = 2,
-  FOREST = 3,
-  JUNGLE = 4,
-  DESERT = 5,
-  TAIGA = 6,
-  TUNDRA = 7,
-  MOUNTAIN = 8,
-  GLACIER = 9
+  OCEAN_DEEP = 0,
+  OCEAN_SHALLOW = 1,
+  BEACH = 2,
+  GRASSLAND = 3,
+  FOREST = 4,
+  DENSE_FOREST = 5,
+  JUNGLE = 6,
+  SAVANNA = 7,
+  DESERT = 8,
+  TUNDRA = 9,
+  SNOW = 10,
+  MOUNTAIN = 11,
+  MOUNTAIN_SNOW = 12,
+  CLIFF = 13,
+  RIVER = 14,
+  LAKE = 15,
+  SWAMP = 16,
+  MARSH = 17,
 }
 
 export enum WaterType {
-  FRESH = 0,
-  SALT = 1,
-  BRACKISH = 2
+  NONE = 0,
+  OCEAN = 1,
+  RIVER = 2,
+  LAKE = 3,
 }
 
 export enum VegetationType {
   NONE = 0,
   GRASS = 1,
-  SHRUBS = 2,
+  SHRUB = 2,
   DECIDUOUS = 3,
   CONIFEROUS = 4,
-  TROPICAL = 5
+  TROPICAL = 5,
+  CACTUS = 6,
+  TUNDRA_VEGETATION = 7,
 }
 
 export enum SoilType {
   SAND = 0,
-  LOAM = 1,
+  DIRT = 1,
   CLAY = 2,
-  PEAT = 3,
-  ROCKY = 4
+  SILT = 3,
+  PEAT = 4,
+  GRAVEL = 5,
+  ROCK = 6,
+  SNOW = 7,
 }
 
+/* ColorIndex is used for rendering and mapping purposes, representing different terrain colors
+ * While this is currently a duplicate of the TerrainType enum, it may be expanded in the future
+ * to include more specific color indices for rendering purposes. */
 export enum ColorIndex {
-  DEEP_WATER = 0,
-  SHALLOW_WATER = 1,
+  OCEAN_DEEP = 0,
+  OCEAN_SHALLOW = 1,
   BEACH = 2,
-  PLAINS = 3,
+  GRASSLAND = 3,
   FOREST = 4,
-  JUNGLE = 5,
-  DESERT = 6,
-  TAIGA = 7,
-  TUNDRA = 8,
-  MOUNTAIN = 9,
-  GLACIER = 10
+  DENSE_FOREST = 5,
+  JUNGLE = 6,
+  SAVANNA = 7,
+  DESERT = 8,
+  TUNDRA = 9,
+  SNOW = 10,
+  MOUNTAIN = 11,
+  MOUNTAIN_SNOW = 12,
+  CLIFF = 13,
+  RIVER = 14,
+  LAKE = 15,
+  SWAMP = 16,
+  MARSH = 17,
 }
 
 export interface BaseTile {

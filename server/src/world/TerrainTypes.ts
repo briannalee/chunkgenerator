@@ -1,4 +1,4 @@
-export enum TerrainType {
+export enum Biome {
   OCEAN_DEEP = 0,
   OCEAN_SHALLOW = 1,
   BEACH = 2,
@@ -81,11 +81,12 @@ export interface TerrainPoint {
   wT?: WaterType; // water type (only if w is true)
   t: number;      // temperature (normalized 0-1)
   p: number;      // precipitation (normalized 0-1)
-  b: TerrainType; // biome/terrain type
+  b: Biome; // biome/terrain type
   v?: number;      // vegetation amount (0-1)
   vT?: VegetationType; // vegetation type (only if v > 0)
   sT?: SoilType;  // soil type (only if not water)
   stp: number;    // steepness (0-1)
   iC?: boolean;    // is cliff
   c: ColorIndex;  // color index for rendering
+  _possibleBeach?: Boolean; // used for beach detection, not sent to client
 }
