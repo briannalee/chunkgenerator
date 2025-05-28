@@ -50,7 +50,6 @@ wss.on("connection", (ws) => {
   const id = Math.random().toString(36).substr(2, 9);
   players[id] = { x: 0, y: 0 };
   ws.send(JSON.stringify({ type: "connected", id, players }));
-  console.log("WebSocket player connected:", id);
 
   ws.on("message", async (data) => {
     const message = JSON.parse(data.toString());
@@ -62,7 +61,6 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     delete players[id];
     broadcastPlayerUpdate();
-    console.log("WebSocket player disconnected:", id);
   });
 });
 
@@ -86,7 +84,6 @@ async function handleMessage(
       saveChunk(generatedChunk);
       chunk = generatedChunk;
     }
-    console.log(`Chunk requested: ${x}, ${y} by player ${playerId}`);
     sendResponse({ type: "chunkData", chunk });
   } else if (message.type === "move") {
     const { x, y } = message;
