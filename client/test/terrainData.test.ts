@@ -7,14 +7,22 @@ describe('Terrain Quality Tests', () => {
   let adapter: INetworkAdapter;
   let testChunks: any[] = [];
 
-  // Define test chunk coordinates for coverage of various map areas
-  const chunkCoordinates = [
+  // Define hardcoded test chunk coordinates for coverage of various map areas
+  let chunkCoordinates = [
     { x: 0, y: 0 },   // Origin
     { x: 5, y: 5 },   // Distant chunk
     { x: -3, y: 2 },  // Negative coordinates
     { x: 10, y: -7 }, // Mixed coordinates
     { x: 0, y: 15 }   // Far chunk
   ];
+
+  // Randomly generated chunk coordinates for additional coverage
+  for (let i = 0; i < 5; i++) {
+    chunkCoordinates.push({
+      x: Math.floor(Math.random() * 5000) - 2500, 
+      y: Math.floor(Math.random() * 5000) - 2500 
+    });
+  }
 
   // Setup: connect to the network and load test chunks before running tests
   beforeAll(async () => {
@@ -85,7 +93,9 @@ describe('Terrain Quality Tests', () => {
 
         // Each tile should have the expected properties
         chunkData.chunk.tiles.forEach((tile: any) => {
+
           expect(tile).toMatchObject({
+            
             x: expect.any(Number),
             y: expect.any(Number),
             h: expect.any(Number), // Height
@@ -130,7 +140,7 @@ describe('Terrain Quality Tests', () => {
 
   // --- Water Tile Tests ---
   describe('Water Tiles Across All Chunks', () => {
-    
+
     // Water tiles should have valid water-specific properties
     it(`Chunk should have valid water properties`, () => {
       testChunks.forEach((chunkData, chunkIndex) => {
@@ -158,7 +168,7 @@ describe('Terrain Quality Tests', () => {
         const waterTiles = chunkData.chunk.tiles.filter((t: any) => 'w' in t && t.w === true);
         waterTiles.forEach((tile: any) => {
           expect(tile.vg).toBeUndefined();
-          expect(tile.st).toBeUndefined();
+          expect(tile.sT).toBeUndefined();
         });
       });
     });
@@ -174,14 +184,14 @@ describe('Terrain Quality Tests', () => {
 
         landTiles.forEach((tile: any) => {
           // Basic properties
-          expect(tile.st).toBeDefined();
+          expect(tile.sT).toBeDefined();
           expect(tile.stp).toBeDefined();
 
-          // Elevation-specific checks
-          if (tile.h > 0.8) {
-            expect(tile.t).toBeLessThan(0.4);
-          } else if (tile.h < 0.3) {
-            expect(tile.rf).toBeGreaterThan(0.5);
+          // Elevation-specific temperature checks
+          if (tile.h > 0.8) { // High mountains
+            expect(tile.t).toBeLessThan(0.0); // Should be cold (below freezing at peak)
+          } else if (tile.h < 0.3) { // Lowlands
+            expect(tile.t).toBeGreaterThan(0.4); // Should be warm (unless polar region)
           }
         });
       });
@@ -216,8 +226,7 @@ describe('Terrain Quality Tests', () => {
       });
 
       allCoastalTiles.forEach(tile => {
-        expect(tile.st).toBe(3); // Sandy soil
-        expect(tile.pop).toBeGreaterThan(0.1);
+        expect(tile.sT).toBe(0); // Sandy soil
       });
     });
 
@@ -250,7 +259,7 @@ describe('Terrain Quality Tests', () => {
         // Similar biome properties for land tiles
         if (!tileA.w && !tileB.w) {
           expect(Math.abs(tileA.t - tileB.t)).toBeLessThan(0.15);
-          expect(Math.abs(tileA.rf - tileB.rf)).toBeLessThan(0.2);
+          expect(Math.abs(tileA.p - tileB.p)).toBeLessThan(0.2);
         }
       });
     });
@@ -419,11 +428,11 @@ describe('Terrain Quality Tests', () => {
         expect(tile1.y).toBe(tile2.y);
         expect(tile1.h).toBe(tile2.h);
         expect(tile1.t).toBe(tile2.t);
-        expect(tile1.rf).toBe(tile2.rf);
+        expect(tile1.p).toBe(tile2.p);
         expect(tile1.w).toBe(tile2.w);
         expect(tile1.stp).toBe(tile2.stp);
         expect(tile1.iC).toBe(tile2.iC);
-        expect(tile1.st).toBe(tile2.st);
+        expect(tile1.sT).toBe(tile2.sT);
 
         // Optional properties should also match
         if (tile1.vg !== undefined) {
@@ -431,9 +440,6 @@ describe('Terrain Quality Tests', () => {
         }
         if (tile1.wT !== undefined) {
           expect(tile1.wT).toBe(tile2.wT);
-        }
-        if (tile1.pop !== undefined) {
-          expect(tile1.pop).toBe(tile2.pop);
         }
       });
 

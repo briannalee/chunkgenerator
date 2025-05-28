@@ -1,3 +1,4 @@
+import { Tile, WaterType, Biome, ChunkData, WaterTile, LandTile, VegetationType } from "../types/types";
 import { INetworkAdapter } from "../network/INetworkAdapter";
 import { NetworkFactory } from "../network/NetworkFactory";
 
@@ -5,20 +6,6 @@ export interface PlayerData {
   x: number;
   y: number;
 }
-
-export interface ChunkData {
-  x: number;
-  y: number;
-  tiles: TileData[];
-}
-
-export interface TileData {
-  x: number;
-  y: number;
-  type: TileType;
-}
-
-export type TileType = "grass" | "rock" | "forest" | "water" | "desert";
 
 export interface Viewport {
   width: number;
@@ -136,6 +123,8 @@ export class GameLogic {
     return false;
   }
 
+
+
   public getVisibleChunkKeys(): string[] {
     const centerX = this.playerPosition.x;
     const centerY = this.playerPosition.y;
@@ -243,16 +232,102 @@ export class GameLogic {
     return chunkKey;
   }
 
-  public getTileColor(type: TileType): number {
-    switch (type) {
-      case "grass": return 0x00ff00;
-      case "rock": return 0xaaaaaa;
-      case "forest": return 0x006600;
-      case "water": return 0x0000ff;
-      case "desert": return 0xffcc00;
-      default: return 0xffffff;
+
+  public getTileColor(tile: Tile): number {
+    if (tile.w) {
+      return this.getWaterColor(tile);
+    } else {
+      return this.getLandColor(tile);
     }
   }
+
+    private getWaterColor(tile: WaterTile): number {
+    // Depth-based water coloring
+    const depthFactor = 1 - tile.nH; // Deeper water is darker
+    const baseColors = {
+      [WaterType.FRESH]: 0x1E90FF, // DodgerBlue
+      [WaterType.SALT]: 0x00BFFF,  // DeepSkyBlue
+      [WaterType.BRACKISH]: 0x5F9EA0 // CadetBlue
+    };
+
+    const baseColor = baseColors[tile.wT];
+    return this.darkenColor(baseColor, depthFactor * 0.7);
+  }
+
+    private getLandColor(tile: LandTile): number {
+    // Elevation-based tinting
+    const elevationTint = this.getElevationTint(tile.nH);
+    
+    // Base colors for each biome
+    const biomeColors = {
+      [Biome.OCEAN]: 0x1E90FF,
+      [Biome.BEACH]: 0xF5DEB3,
+      [Biome.PLAINS]: 0x7CFC00,
+      [Biome.FOREST]: this.getForestColor(tile),
+      [Biome.JUNGLE]: 0x006400,
+      [Biome.DESERT]: 0xF4A460,
+      [Biome.TAIGA]: 0x2E8B57,
+      [Biome.TUNDRA]: 0xE6E6FA,
+      [Biome.MOUNTAIN]: this.getMountainColor(tile),
+      [Biome.GLACIER]: 0xFFFFFF
+    };
+
+    return this.mixColors(biomeColors[tile.b], elevationTint, 0.7);
+  }
+
+   private getForestColor(tile: LandTile): number {
+    // Vegetation density affects forest color
+    const density = tile.v;
+    const baseColors: Record<VegetationType, number> = {
+      [VegetationType.GRASS]: 0x7CFC00,
+      [VegetationType.SHRUBS]: 0x6B8E23,
+      [VegetationType.DECIDUOUS]: 0x228B22,
+      [VegetationType.CONIFEROUS]: 0x2E8B57,
+      [VegetationType.TROPICAL]: 0x006400,
+      [VegetationType.NONE]: 0
+    };
+    return this.darkenColor(baseColors[tile.vT], 1 - (density * 0.5));
+  }
+
+  private getMountainColor(tile: LandTile): number {
+    // Rocky appearance with snow caps
+    if (tile.t < 0) { // Below freezing
+      return 0xFFFFFF; // Snow
+    }
+    return 0xA9A9A9; // Rock
+  }
+
+  // Color utility functions
+  public darkenColor(color: number, factor: number): number {
+    const r = Math.max(0, ((color >> 16) & 0xFF) * (1 - factor));
+    const g = Math.max(0, ((color >> 8) & 0xFF) * (1 - factor));
+    const b = Math.max(0, (color & 0xFF) * (1 - factor));
+    return (r << 16) + (g << 8) + b;
+  }
+
+  private mixColors(color1: number, color2: number, ratio: number): number {
+    const r1 = (color1 >> 16) & 0xFF;
+    const g1 = (color1 >> 8) & 0xFF;
+    const b1 = color1 & 0xFF;
+    
+    const r2 = (color2 >> 16) & 0xFF;
+    const g2 = (color2 >> 8) & 0xFF;
+    const b2 = color2 & 0xFF;
+    
+    const r = Math.round(r1 * ratio + r2 * (1 - ratio));
+    const g = Math.round(g1 * ratio + g2 * (1 - ratio));
+    const b = Math.round(b1 * ratio + b2 * (1 - ratio));
+    
+    return (r << 16) + (g << 8) + b;
+  }
+
+  private getElevationTint(elevation: number): number {
+    // Higher elevations get more gray/rocky
+    if (elevation > 0.8) return 0xAAAAAA;
+    if (elevation > 0.6) return 0xCCCCCC;
+    return 0xFFFFFF; // No tint
+  }
+
 
   // Player management
   public updatePlayers(playersData: Record<string, PlayerData>): void {

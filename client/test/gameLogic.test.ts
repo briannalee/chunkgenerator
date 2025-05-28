@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ChunkData, GameLogic, TileType, CHUNK_SIZE, MAX_PENDING_REQUESTS, TILE_SIZE} from '../src/logic/GameLogic';
+import { GameLogic, CHUNK_SIZE, MAX_PENDING_REQUESTS, TILE_SIZE } from '../src/logic/GameLogic';
+import { Biome, ChunkData, ColorIndex, LandTile, SoilType, VegetationType, WaterTile, WaterType } from '../src/types/types';
 
 
 describe('GameLogic', () => {
@@ -68,25 +69,6 @@ describe('GameLogic', () => {
       expect(game.pendingChunks.has(key)).toBe(false);
       expect(game.chunks[key]).toEqual(chunk);
       expect(returnedKey).toBe(key);
-    });
-  });
-
-  describe('getTileColor', () => {
-    it('returns correct color for known tile types', () => {
-      const cases: [TileType, number][] = [
-        ['grass', 0x00ff00],
-        ['rock', 0xaaaaaa],
-        ['forest', 0x006600],
-        ['water', 0x0000ff],
-        ['desert', 0xffcc00],
-      ];
-      for (const [type, color] of cases) {
-        expect(game.getTileColor(type)).toBe(color);
-      }
-    });
-
-    it('returns default color for unknown tile type', () => {
-      expect(game.getTileColor('unknown' as TileType)).toBe(0xffffff);
     });
   });
 

@@ -1,5 +1,6 @@
 import Phaser from "phaser";
-import { CHUNK_SIZE, GameLogic, TILE_SIZE, ChunkData } from "../logic/GameLogic";
+import { CHUNK_SIZE, GameLogic, TILE_SIZE } from "../logic/GameLogic";
+import { ChunkData } from "../types/types";
 
 
 const DEBUG_MODE = false;
@@ -29,7 +30,7 @@ export class GameScene extends Phaser.Scene {
 
     // Set initial camera position and zoom
     this.cameras.main.startFollow(this.player);
-    this.cameras.main.setZoom(2);
+    this.cameras.main.setZoom(1);
 
     // Initial viewport update
     this.gameLogic.updateViewport(
@@ -141,18 +142,16 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private renderChunk(chunkData: ChunkData) {
+private renderChunk(chunkData: ChunkData) {
     const { x: chunkX, y: chunkY, tiles } = chunkData;
     const startX = chunkX * CHUNK_SIZE * TILE_SIZE;
     const startY = chunkY * CHUNK_SIZE * TILE_SIZE;
 
-    const newTiles: Phaser.GameObjects.Rectangle[] = [];
-
-    tiles.forEach((tile: { x: number; y: number; type: any; }) => {
+    tiles.forEach((tile) => {
       const tileWorldX = startX + tile.x * TILE_SIZE;
       const tileWorldY = startY + tile.y * TILE_SIZE;
 
-      const color = this.gameLogic.getTileColor(tile.type);
+      const color = this.gameLogic.getTileColor(tile);
       const tileRect = this.add.rectangle(
         tileWorldX,
         tileWorldY,
@@ -161,11 +160,19 @@ export class GameScene extends Phaser.Scene {
         color
       ).setOrigin(0);
 
-      newTiles.push(tileRect);
-    });
+      // Add visual details based on terrain properties
+      if (tile.iC) {
+        tileRect.setStrokeStyle(1, 0x333333); // Cliff edges
+      }
 
-    this.tilesGroup.addMultiple(newTiles);
+      if (!tile.w && tile.stp > 0.5) {
+        tileRect.setFillStyle(this.gameLogic.darkenColor(color, 0.2)); // Steeper slopes
+      }
+
+      this.tilesGroup.add(tileRect);
+    });
   }
+
 
   private unloadRenderedChunk(chunkKey: string) {
     const [chunkX, chunkY] = chunkKey.split(',').map(Number);
