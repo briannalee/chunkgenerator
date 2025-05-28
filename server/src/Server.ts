@@ -2,8 +2,9 @@ import express from "express";
 import { WebSocketServer } from "ws";
 import { createServer } from "http";
 import dotenv from "dotenv";
-import { findChunk, saveChunk } from "./models/Chunk";
-import { randomInt } from "crypto";
+import { findChunk, saveChunk, ChunkData } from "./models/Chunk";
+import { WorldGenerator } from "./world/WorldGenerator";
+import { TerrainConverter } from "./world/TerrainConverter";
 
 dotenv.config();
 
@@ -23,20 +24,22 @@ app.use((req, res, next) => {
 });
 const port = process.env.PORT || 15432;
 
+// Initialize world generator with a fixed seed for consistency
+const worldGenerator = new WorldGenerator(12345);
 
-// Terrain types
-const TERRAIN_TYPES = ["grass", "rock", "forest", "water", "desert"];
+// Generate a chunk with realistic terrain
+const generateChunk = (x: number, y: number): ChunkData => {
+  // Generate detailed terrain data
+  const terrain = worldGenerator.generateChunk(x, y, 10);
 
-// Generate tiles for a chunk
-const generateChunk = (x: number, y: number) => {
-  const tiles = [];
-  for (let i = 0; i < 10; i++) {
-    for (let j = 0; j < 10; j++) {
-      const tileType = TERRAIN_TYPES[randomInt(0, TERRAIN_TYPES.length)];
-      tiles.push({ x: i, y: j, type: tileType });
+  let tiles = [];
+  for (let row of terrain) {
+    for (let point of row) {
+      // Convert terrain point to a simplified tile
+      tiles.push(point);
     }
   }
-  return { x, y, tiles };
+  return { x, y, tiles, terrain };
 };
 
 // Shared player state
@@ -70,21 +73,28 @@ async function handleMessage(
   playerId: string,
   sendResponse: (response: any) => void
 ) {
-
   if (message.type === "requestChunk") {
-
     const { x, y } = message;
     if (typeof x !== "number" || typeof y !== "number" || isNaN(x) || isNaN(y)) {
       sendResponse({ type: "error", message: "Invalid coordinates" });
       return;
     }
+    
     let chunk = findChunk(x, y);
     if (!chunk) {
       const generatedChunk = generateChunk(x, y);
       saveChunk(generatedChunk);
       chunk = generatedChunk;
     }
-    sendResponse({ type: "chunkData", chunk });
+    
+    // Don't send the detailed terrain data to the client, just the simplified tiles
+    const clientChunk = {
+      x: chunk.x,
+      y: chunk.y,
+      tiles: chunk.tiles
+    };
+    
+    sendResponse({ type: "chunkData", chunk: clientChunk });
   } else if (message.type === "move") {
     const { x, y } = message;
     players[playerId] = { x, y };

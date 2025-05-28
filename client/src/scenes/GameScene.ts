@@ -148,8 +148,8 @@ private renderChunk(chunkData: ChunkData) {
     const startY = chunkY * CHUNK_SIZE * TILE_SIZE;
 
     tiles.forEach((tile) => {
-      const tileWorldX = startX + tile.x * TILE_SIZE;
-      const tileWorldY = startY + tile.y * TILE_SIZE;
+      const tileWorldX = tile.x * TILE_SIZE;
+      const tileWorldY = tile.y * TILE_SIZE;
 
       const color = this.gameLogic.getTileColor(tile);
       const tileRect = this.add.rectangle(

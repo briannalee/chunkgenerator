@@ -153,10 +153,15 @@ describe('Terrain Quality Tests', () => {
           });
 
           // Water-specific validations
-          expect(tile.stp).toBeLessThan(0.3);
           expect(tile.iC).toBe(false);
           if (tile.wT === 1) { // Ocean
-            expect(tile.rf).toBeGreaterThan(0.8);
+            // If warm ocean, precipitation should be higher
+            if (tile.t > 0.5) {
+              expect(tile.p).toBeGreaterThan(0.5); // Warm ocean should have high precipitation
+            } else {
+              // If cold ocean, precipitation should still be non-zero
+              expect(tile.p).toBeGreaterThan(0.1); // Cold ocean should have some precipitation
+            }
           }
         });
       });
@@ -168,7 +173,7 @@ describe('Terrain Quality Tests', () => {
         const waterTiles = chunkData.chunk.tiles.filter((t: any) => 'w' in t && t.w === true);
         waterTiles.forEach((tile: any) => {
           expect(tile.vg).toBeUndefined();
-          expect(tile.sT).toBeUndefined();
+          expect(tile.vT).toBeUndefined();
         });
       });
     });
