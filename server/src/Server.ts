@@ -1,5 +1,6 @@
 import express from "express";
 import { WebSocketServer } from "ws";
+import * as zlib from 'zlib';
 import { createServer } from "http";
 import dotenv from "dotenv";
 import { findChunk, saveChunk, ChunkData } from "./models/Chunk";
@@ -26,20 +27,41 @@ const port = process.env.PORT || 15432;
 // Initialize world generator with a fixed seed for consistency
 const worldGenerator = new WorldGenerator(12345);
 
-// Generate a chunk with realistic terrain
-const generateChunk = (x: number, y: number): ChunkData => {
-  // Generate detailed terrain data
-  const terrain = worldGenerator.generateChunk(x, y, 10);
+  // Generate a chunk with realistic terrain
+  const generateChunk = (x: number, y: number): ChunkData => {
+    // Generate detailed terrain data
+    const terrain = worldGenerator.generateChunk(x, y, 10);
 
-  let tiles = [];
-  for (let row of terrain) {
-    for (let point of row) {
-      // Convert terrain point to a simplified tile
-      tiles.push(point);
+    let tiles = [];
+    for (let row of terrain) {
+      for (let point of row) {
+        const h = Math.round(point.h * 100) / 100;
+        const nH = Math.round(point.nH * 100) / 100;
+        const t = Math.round(point.t * 100) / 100;
+        const p = Math.round(point.p * 100) / 100;
+        const stp = Math.round(point.stp * 100) / 100;
+        const v = point.v ? Math.round(point.v * 100) / 100 : 0;
+        tiles.push([
+          point.x,
+          point.y,
+          h,
+          nH,
+          point.w ? 1 : 0,
+          t,
+          p,
+          stp,
+          point.b,
+          point.c,
+          point.iC ? 1 : 0,
+          point.wT || 0,
+          v,
+          point.vT || 0,
+          point.sT || 0
+        ]);
+      }
     }
-  }
-  return { x, y, tiles, terrain };
-};
+    return { x, y, tiles, terrain };
+  };
 
 // Shared player state
 const players: Record<string, { x: number; y: number }> = {};
@@ -55,9 +77,7 @@ wss.on("connection", (ws) => {
 
   ws.on("message", async (data) => {
     const message = JSON.parse(data.toString());
-    await handleMessage(message, id, (response) => {
-      ws.send(JSON.stringify(response));
-    });
+    await handleMessage(ws, message, id);
   });
 
   ws.on("close", () => {
@@ -68,14 +88,14 @@ wss.on("connection", (ws) => {
 
 // Shared message handling logic
 async function handleMessage(
+  ws: any,
   message: any,
-  playerId: string,
-  sendResponse: (response: any) => void
+  playerId: string
 ) {
   if (message.type === "requestChunk") {
     const { x, y } = message;
     if (typeof x !== "number" || typeof y !== "number" || isNaN(x) || isNaN(y)) {
-      sendResponse({ type: "error", message: "Invalid coordinates" });
+      ws.send(JSON.stringify({ type: "error", message: "Invalid coordinates" }));
       return;
     }
     
@@ -86,21 +106,23 @@ async function handleMessage(
       chunk = generatedChunk;
     }
     
-    // Don't send the detailed terrain data to the client, just the simplified tiles
     const clientChunk = {
       x: chunk.x,
       y: chunk.y,
       tiles: chunk.tiles
     };
     
-    sendResponse({ type: "chunkData", chunk: clientChunk });
+    const chunkResponse = { type: "chunkData", chunk: clientChunk };
+    const chunkData = JSON.stringify(chunkResponse);
+    const compressed = zlib.gzipSync(chunkData);
+    ws.send(compressed);
   } else if (message.type === "move") {
     const { x, y } = message;
     players[playerId] = { x, y };
     broadcastPlayerUpdate();
   } else if (message.type === "handshake") {
     // Handle handshake message
-    sendResponse({ type: "handshook", id: playerId, players });
+    ws.send(JSON.stringify({ type: "handshook", id: playerId, players }));
   } else {
     console.log("Unknown message type:", message);
   }
