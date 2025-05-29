@@ -4,7 +4,6 @@ import { createServer } from "http";
 import dotenv from "dotenv";
 import { findChunk, saveChunk, ChunkData } from "./models/Chunk";
 import { WorldGenerator } from "./world/WorldGenerator";
-import { TerrainConverter } from "./world/TerrainConverter";
 
 dotenv.config();
 

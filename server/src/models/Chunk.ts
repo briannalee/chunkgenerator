@@ -2,7 +2,6 @@ import initSqlJs, { Database } from "sql.js";
 import fs from "fs";
 import path from "path";
 import { TerrainPoint } from "../world/TerrainTypes";
-import { SimpleTile } from "../world/TerrainConverter";
 
 // Load SQL.js and initialize database
 let db: Database;

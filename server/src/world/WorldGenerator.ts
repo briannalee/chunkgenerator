@@ -5,52 +5,69 @@ export class WorldGenerator {
   private noiseGen: NoiseGenerator;
   private seaLevel: number = 0.4; // Normalized height for sea level
 
+  private heightCache: Map<string, number> = new Map();
+
   constructor(seed?: number) {
     this.noiseGen = new NoiseGenerator(seed);
   }
 
   generateChunk(chunkX: number, chunkY: number, chunkSize: number = 10): TerrainPoint[][] {
     const terrain: TerrainPoint[][] = [];
+    this.heightCache.clear(); // Clear cache for each new chunk
 
+    // First pass: generate and cache all height values
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const worldX = chunkX * chunkSize + x;
+        const worldY = chunkY * chunkSize + y;
+        const height = this.noiseGen.generateHeight(worldX, worldY);
+        this.cacheHeight(worldX, worldY, height);
+      }
+    }
+
+    // Second pass: generate terrain points using cached heights
     for (let y = 0; y < chunkSize; y++) {
       terrain[y] = [];
       for (let x = 0; x < chunkSize; x++) {
-        // Calculate world coordinates
         const worldX = chunkX * chunkSize + x;
         const worldY = chunkY * chunkSize + y;
-
-        // Generate the terrain point
         terrain[y][x] = this.generateTerrainPoint(worldX, worldY);
       }
     }
 
-    // Post-processing: rivers, erosion, etc.
     this.postProcessChunk(terrain, chunkSize);
-
     return terrain;
   }
 
+  private cacheHeight(x: number, y: number, height: number): void {
+    this.heightCache.set(`${x},${y}`, height);
+  }
+
+  private getCachedHeight(x: number, y: number): number {
+    const cached = this.heightCache.get(`${x},${y}`);
+    if (cached === undefined) {
+      // Fallback if not in cache (for edge cases)
+      const height = this.noiseGen.generateHeight(x, y);
+      this.cacheHeight(x, y, height);
+      return height;
+    }
+    return cached;
+  }
+
   private generateTerrainPoint(x: number, y: number): TerrainPoint {
-    // Generate base height using domain-warped noise
-    const height = this.noiseGen.generateHeight(x, y);
-    const normalizedHeight = (height + 1) * 0.5; // Convert from [-1,1] to [0,1]
+    // Get cached height values
+    const height = this.getCachedHeight(x, y);
+    const h1 = this.getCachedHeight(x + 1, y);
+    const h2 = this.getCachedHeight(x, y + 1);
 
-    // Calculate steepness based on neighboring heights
-    const h1 = this.noiseGen.generateHeight(x + 1, y);
-    const h2 = this.noiseGen.generateHeight(x, y + 1);
+    const normalizedHeight = (height + 1) * 0.5;
     const steepness = Math.min(1, (Math.abs(height - h1) + Math.abs(height - h2)) * 5);
-
-    // Determine if it's water
     const isWater = normalizedHeight < this.seaLevel;
 
-    // Generate temperature (affected by height and latitude)
+    // Get other properties (temperature/precipitation not cached as they're used once)
     const temperature = this.noiseGen.generateTemperature(x, y, normalizedHeight);
-
-    // Generate precipitation (affected by temperature and terrain)
     const precipitation = this.noiseGen.generatePrecipitation(x, y, normalizedHeight, temperature);
 
-
-    // Create the base terrain point
     const point: TerrainPoint = {
       x,
       y,
@@ -60,14 +77,12 @@ export class WorldGenerator {
       t: temperature,
       p: precipitation,
       stp: steepness,
-      b: Biome.GRASSLAND, // Default, will be overridden
-      c: ColorIndex.GRASSLAND, // Default color index, will be overridden
+      b: Biome.GRASSLAND,
+      c: ColorIndex.GRASSLAND,
       _possibleBeach: false
     };
 
-    // Determine biome and other properties based on the generated data
     this.assignTerrainProperties(point);
-
     return point;
   }
 
@@ -89,7 +104,7 @@ export class WorldGenerator {
 
     // Determine if it's a cliff
     point.iC = point.stp > 0.7 && point.nH > this.seaLevel;
-    const isPotentialBeach = point.nH < this.seaLevel + 0.05; // Slightly more generous elevation range
+    const isPotentialBeach = point.nH < this.seaLevel + 0.05;
 
     if (isPotentialBeach) {
       // We'll check neighbors during post-processing to confirm beach status
@@ -138,8 +153,8 @@ export class WorldGenerator {
     }
 
     // Tundra (cold and moderate precipitation)
-    if (point.t < 0.3) {
-      if (point.t < 0.15) {
+    if (point.t < 0.2) {
+      if (point.t < 0.05) {
         point.b = Biome.SNOW;
         point.c = ColorIndex.SNOW;
         point.sT = SoilType.SNOW;
@@ -242,7 +257,6 @@ export class WorldGenerator {
         }
       }
     }
-
 
     // Simple river generation (very basic)
     const shouldHaveRiver = Math.random() < 0.3; // 30% chance for a chunk to have a river

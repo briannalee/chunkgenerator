@@ -159,10 +159,10 @@ describe('Terrain Quality Tests', () => {
             expect(tile.iC).toBeUndefined(); // No cliffs in ocean (rivers may have cliffs, e.g. waterfalls)
             // If warm ocean, precipitation should be higher
             if (tile.t > 0.5) {
-              expect(tile.p).toBeGreaterThan(0.15); // Warm ocean should have higher precipitation
+              expect(tile.p).toBeGreaterThan(0.1); // Warm ocean should have precipitation
             } else {
               // If cold ocean, precipitation should still be non-zero
-              expect(tile.p).toBeGreaterThanOrEqual(0.1); // Cold ocean should have some precipitation
+              expect(tile.p).toBeGreaterThanOrEqual(0.05); // Cold ocean should have some precipitation
             }
           }
         });

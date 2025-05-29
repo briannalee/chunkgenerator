@@ -1,4 +1,4 @@
-import { Tile, WaterType, Biome, ChunkData, WaterTile, LandTile, VegetationType } from "../types/types";
+import { Tile, WaterType, Biome, ChunkData, WaterTile, LandTile, VegetationType, ColorMap } from "../types/types";
 import { INetworkAdapter } from "../network/INetworkAdapter";
 import { NetworkFactory } from "../network/NetworkFactory";
 
@@ -280,8 +280,18 @@ export class GameLogic {
       [Biome.SNOW]: 0xFFFFFF,
       [Biome.MOUNTAIN_SNOW]: 0xe8e8e8
     };
-
-    return this.mixColors(biomeColors[tile.b], elevationTint, 0.7);
+    
+    // Get base color for the tile's biome
+    let color = ColorMap[tile.c] || 0x000000; // Default to black if unknown biome
+    // Update dynamic colors for forests and mountains
+    if (tile.b === Biome.FOREST || tile.b === Biome.DENSE_FOREST) {
+      color = this.getForestColor(tile);
+    } else if (tile.b === Biome.MOUNTAIN) {
+      color = this.getMountainColor(tile);
+    }
+    
+    // Mix with elevation tint
+    return this.mixColors(color, elevationTint, 0.7);
   }
 
    private getForestColor(tile: LandTile): number {
