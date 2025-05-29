@@ -1,4 +1,4 @@
-import { Tile, WaterType, Biome, ChunkData, WaterTile, LandTile, VegetationType } from "../types/types";
+import { Tile, WaterType, Biome, ChunkData, WaterTile, LandTile, VegetationType, ColorMap } from "../types/types";
 import { INetworkAdapter } from "../network/INetworkAdapter";
 import { NetworkFactory } from "../network/NetworkFactory";
 
@@ -245,9 +245,10 @@ export class GameLogic {
     // Depth-based water coloring
     const depthFactor = 1 - tile.nH; // Deeper water is darker
     const baseColors = {
-      [WaterType.FRESH]: 0x1E90FF, // DodgerBlue
-      [WaterType.SALT]: 0x00BFFF,  // DeepSkyBlue
-      [WaterType.BRACKISH]: 0x5F9EA0 // CadetBlue
+      [WaterType.RIVER]: 0x1E90FF, // DodgerBlue
+      [WaterType.OCEAN]: 0x0f4d8a,  // DeepSkyBlue
+      [WaterType.LAKE]: 0x5F9EA0, // CadetBlue
+      [WaterType.NONE]: 0x000000 // Default color for no water
     };
 
     const baseColor = baseColors[tile.wT];
@@ -260,19 +261,37 @@ export class GameLogic {
     
     // Base colors for each biome
     const biomeColors = {
-      [Biome.OCEAN]: 0x1E90FF,
+      [Biome.OCEAN_DEEP]: 0x0f4d8a,
+      [Biome.OCEAN_SHALLOW]: 0x08394d,
       [Biome.BEACH]: 0xF5DEB3,
-      [Biome.PLAINS]: 0x7CFC00,
+      [Biome.GRASSLAND]: 0x7CFC00,
       [Biome.FOREST]: this.getForestColor(tile),
+      [Biome.DENSE_FOREST]: this.getForestColor(tile),
+      [Biome.SWAMP]: 0x8FBC8F,
+      [Biome.MARSH]: 0x98FB98,
+      [Biome.CLIFF]: 0xA9A9A9,
+      [Biome.RIVER]: 0x1E90FF,
+      [Biome.LAKE]: 0x5F9EA0,
       [Biome.JUNGLE]: 0x006400,
       [Biome.DESERT]: 0xF4A460,
-      [Biome.TAIGA]: 0x2E8B57,
+      [Biome.SAVANNA]: 0xD2B48C,
       [Biome.TUNDRA]: 0xE6E6FA,
       [Biome.MOUNTAIN]: this.getMountainColor(tile),
-      [Biome.GLACIER]: 0xFFFFFF
+      [Biome.SNOW]: 0xFFFFFF,
+      [Biome.MOUNTAIN_SNOW]: 0xe8e8e8
     };
-
-    return this.mixColors(biomeColors[tile.b], elevationTint, 0.7);
+    
+    // Get base color for the tile's biome
+    let color = ColorMap[tile.c] || 0x000000; // Default to black if unknown biome
+    // Update dynamic colors for forests and mountains
+    if (tile.b === Biome.FOREST || tile.b === Biome.DENSE_FOREST) {
+      color = this.getForestColor(tile);
+    } else if (tile.b === Biome.MOUNTAIN) {
+      color = this.getMountainColor(tile);
+    }
+    
+    // Mix with elevation tint
+    return this.mixColors(color, elevationTint, 0.7);
   }
 
    private getForestColor(tile: LandTile): number {
@@ -280,10 +299,12 @@ export class GameLogic {
     const density = tile.v;
     const baseColors: Record<VegetationType, number> = {
       [VegetationType.GRASS]: 0x7CFC00,
-      [VegetationType.SHRUBS]: 0x6B8E23,
+      [VegetationType.SHRUB]: 0x6B8E23,
       [VegetationType.DECIDUOUS]: 0x228B22,
       [VegetationType.CONIFEROUS]: 0x2E8B57,
       [VegetationType.TROPICAL]: 0x006400,
+      [VegetationType.CACTUS]: 0x8B4513,
+      [VegetationType.TUNDRA_VEGETATION]: 0xD2B48C,
       [VegetationType.NONE]: 0
     };
     return this.darkenColor(baseColors[tile.vT], 1 - (density * 0.5));

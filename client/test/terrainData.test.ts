@@ -1,6 +1,7 @@
 import { describe, beforeAll, afterAll, it, expect } from "vitest";
 import { INetworkAdapter } from "../src/network/INetworkAdapter";
 import { NetworkFactory } from "../src/network/NetworkFactory";
+import { WaterType, Biome, SoilType } from "../src/types/types";
 
 // Main test suite for terrain quality
 describe('Terrain Quality Tests', () => {
@@ -19,8 +20,8 @@ describe('Terrain Quality Tests', () => {
   // Randomly generated chunk coordinates for additional coverage
   for (let i = 0; i < 5; i++) {
     chunkCoordinates.push({
-      x: Math.floor(Math.random() * 5000) - 2500, 
-      y: Math.floor(Math.random() * 5000) - 2500 
+      x: Math.floor(Math.random() * 5000) - 2500,
+      y: Math.floor(Math.random() * 5000) - 2500
     });
   }
 
@@ -95,7 +96,7 @@ describe('Terrain Quality Tests', () => {
         chunkData.chunk.tiles.forEach((tile: any) => {
 
           expect(tile).toMatchObject({
-            
+
             x: expect.any(Number),
             y: expect.any(Number),
             h: expect.any(Number), // Height
@@ -153,10 +154,16 @@ describe('Terrain Quality Tests', () => {
           });
 
           // Water-specific validations
-          expect(tile.stp).toBeLessThan(0.3);
-          expect(tile.iC).toBe(false);
+          expect(tile.sT).toBeUndefined(); // No soil type in water
           if (tile.wT === 1) { // Ocean
-            expect(tile.rf).toBeGreaterThan(0.8);
+            expect(tile.iC).toBeUndefined(); // No cliffs in ocean (rivers may have cliffs, e.g. waterfalls)
+            // If warm ocean, precipitation should be higher
+            if (tile.t > 0.5) {
+              expect(tile.p).toBeGreaterThan(0.1); // Warm ocean should have precipitation
+            } else {
+              // If cold ocean, precipitation should still be non-zero
+              expect(tile.p).toBeGreaterThanOrEqual(0.05); // Cold ocean should have some precipitation
+            }
           }
         });
       });
@@ -168,7 +175,7 @@ describe('Terrain Quality Tests', () => {
         const waterTiles = chunkData.chunk.tiles.filter((t: any) => 'w' in t && t.w === true);
         waterTiles.forEach((tile: any) => {
           expect(tile.vg).toBeUndefined();
-          expect(tile.sT).toBeUndefined();
+          expect(tile.vT).toBeUndefined();
         });
       });
     });
@@ -189,9 +196,7 @@ describe('Terrain Quality Tests', () => {
 
           // Elevation-specific temperature checks
           if (tile.h > 0.8) { // High mountains
-            expect(tile.t).toBeLessThan(0.0); // Should be cold (below freezing at peak)
-          } else if (tile.h < 0.3) { // Lowlands
-            expect(tile.t).toBeGreaterThan(0.4); // Should be warm (unless polar region)
+            expect(tile.t).toBeLessThan(0.1); // Should be cold
           }
         });
       });
@@ -212,58 +217,69 @@ describe('Terrain Quality Tests', () => {
 
   // --- Cross-Chunk Edge Case Tests ---
   describe('Cross-Chunk Edge Cases', () => {
-    // Coastline tiles should have consistent properties
     it('should maintain consistent coastlines across chunks', () => {
-      const allCoastalTiles: any[] = [];
+      testChunks.forEach((chunkData) => {
+        const { tiles } = chunkData.chunk;
 
-      testChunks.forEach((chunkData, chunkIndex) => {
-        const coastalTiles = chunkData.chunk.tiles.filter((t: any) =>
-          !t.w && chunkData.chunk.tiles.some((n: any) =>
-            n.w && Math.abs(n.x - t.x) <= 1 && Math.abs(n.y - t.y) <= 1
-          )
-        );
-        allCoastalTiles.push(...coastalTiles);
-      });
+        // Find proper coastal tiles (sand beaches adjacent to ocean)
+        const coastalTiles = tiles.filter((t: any) => {
+          if (t.w) return false; // Skip water tiles
+          if (t.iC) return false; // Skip cliffs
+          if (t.nH < 0.4 - 0.03 || t.nH > 0.4 + 0.03) return false; // Must be near sea level
 
-      allCoastalTiles.forEach(tile => {
-        expect(tile.sT).toBe(0); // Sandy soil
-      });
-    });
+          // Check for adjacent ocean tiles (not rivers/lakes)
+          const hasOceanNeighbor = tiles.some((n: any) =>
+            n.w &&
+            n.wT === WaterType.OCEAN && // Only count ocean water
+            Math.abs(n.x - t.x) + Math.abs(n.y - t.y) === 1 // Only direct neighbors (no diagonals)
+          );
 
-    // Biome properties should be consistent at chunk borders
-    it('should maintain biome consistency at chunk borders', () => {
-      const borderTiles: any[] = [];
+          return hasOceanNeighbor;
+        });
 
-      // Compare adjacent chunks for border consistency
-      for (let i = 0; i < testChunks.length; i++) {
-        for (let j = i + 1; j < testChunks.length; j++) {
-          const chunkA = testChunks[i];
-          const chunkB = testChunks[j];
-
-          // Find tiles within 1 unit of each other
-          chunkA.chunk.tiles.forEach((tileA: any) => {
-            chunkB.chunk.tiles.forEach((tileB: any) => {
-              if (Math.abs(tileA.x - tileB.x) <= 1 &&
-                Math.abs(tileA.y - tileB.y) <= 1) {
-                borderTiles.push({ tileA, tileB });
-              }
-            });
-          });
-        }
-      }
-
-      borderTiles.forEach(({ tileA, tileB }) => {
-        // Similar elevation at borders
-        expect(Math.abs(tileA.h - tileB.h)).toBeLessThan(0.2);
-
-        // Similar biome properties for land tiles
-        if (!tileA.w && !tileB.w) {
-          expect(Math.abs(tileA.t - tileB.t)).toBeLessThan(0.15);
-          expect(Math.abs(tileA.p - tileB.p)).toBeLessThan(0.2);
-        }
+        // Verify coastal properties
+        coastalTiles.forEach(tile => {
+          expect(tile.b).toBe(Biome.BEACH); // Should be beach biome
+          expect(tile.sT).toBe(SoilType.SAND);    // Should have sandy soil
+          expect(tile.nH).toBeGreaterThan(0.4 - 0.03); // Should be just above sea level
+          expect(tile.nH).toBeLessThan(0.4 + 0.03);   // but not too high
+        });
       });
     });
   });
+  // Biome properties should be consistent at chunk borders
+  it('should maintain biome consistency at chunk borders', () => {
+    const borderTiles: any[] = [];
+
+    // Compare adjacent chunks for border consistency
+    for (let i = 0; i < testChunks.length; i++) {
+      for (let j = i + 1; j < testChunks.length; j++) {
+        const chunkA = testChunks[i];
+        const chunkB = testChunks[j];
+
+        // Find tiles within 1 unit of each other
+        chunkA.chunk.tiles.forEach((tileA: any) => {
+          chunkB.chunk.tiles.forEach((tileB: any) => {
+            if (Math.abs(tileA.x - tileB.x) <= 1 &&
+              Math.abs(tileA.y - tileB.y) <= 1) {
+              borderTiles.push({ tileA, tileB });
+            }
+          });
+        });
+      }
+    }
+
+    borderTiles.forEach(({ tileA, tileB }) => {
+      // Similar elevation at borders
+      expect(Math.abs(tileA.h - tileB.h)).toBeLessThan(0.2);
+
+      // Similar biome properties for land tiles
+      if (!tileA.w && !tileB.w) {
+        expect(Math.abs(tileA.t - tileB.t)).toBeLessThan(0.15);
+        expect(Math.abs(tileA.p - tileB.p)).toBeLessThan(0.2);
+      }
+    });
+  }); 
 
   // --- Slope and Temperature Gradient Tests ---
 

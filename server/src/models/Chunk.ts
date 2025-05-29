@@ -1,6 +1,7 @@
 import initSqlJs, { Database } from "sql.js";
 import fs from "fs";
 import path from "path";
+import { TerrainPoint } from "../world/TerrainTypes";
 
 // Load SQL.js and initialize database
 let db: Database;
@@ -17,47 +18,45 @@ async function initDB() {
     x INTEGER NOT NULL,
     y INTEGER NOT NULL,
     tiles TEXT NOT NULL,
+    terrain TEXT NOT NULL,
     PRIMARY KEY (x, y)
   )
 `);
 }
 initDB();
 
-
-
-
-type Tile = {
+export type ChunkData = {
   x: number;
   y: number;
-  type: string;
-};
-
-type ChunkData = {
-  x: number;
-  y: number;
-  tiles: Tile[];
+  tiles: TerrainPoint[];
+  terrain?: TerrainPoint[][];
 };
 
 export function findChunk(x: number, y: number): ChunkData | null {
-  const stmt = db.prepare("SELECT tiles FROM chunks WHERE x = ? AND y = ?");
+  const stmt = db.prepare("SELECT tiles, terrain FROM chunks WHERE x = ? AND y = ?");
   stmt.bind([x, y]);
 
   if (!stmt.step()) return null;
 
-  const row = stmt.getAsObject() as { tiles: string };
+  const row = stmt.getAsObject() as { tiles: string, terrain: string };
   return {
     x,
     y,
     tiles: JSON.parse(row.tiles),
+    terrain: JSON.parse(row.terrain)
   };
 }
 
 export function saveChunk(chunk: ChunkData): void {
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO chunks (x, y, tiles)
-    VALUES (?, ?, ?)
+    INSERT OR REPLACE INTO chunks (x, y, tiles, terrain)
+    VALUES (?, ?, ?, ?)
   `);
-  stmt.run([chunk.x, chunk.y, JSON.stringify(chunk.tiles)]);
+  
+  // Ensure terrain is serialized if it exists
+  const terrainJson = chunk.terrain ? JSON.stringify(chunk.terrain) : "[]";
+  
+  stmt.run([chunk.x, chunk.y, JSON.stringify(chunk.tiles), terrainJson]);
   persistDB(); // save changes to disk
 }
 
