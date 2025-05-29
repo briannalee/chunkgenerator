@@ -14,9 +14,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "pako": "^2.1.0",
     "phaser": "^3.87.0"
   },
   "devDependencies": {
+    "@types/pako": "^2.0.3",
     "@types/puppeteer": "^5.4.7",
     "jsdom": "^26.1.0",
     "puppeteer": "^24.9.0",

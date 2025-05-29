@@ -80,8 +80,27 @@ export class GameLogic {
     const message = data as any;
 
     if (message.type === "chunkData") {
-      const { x, y, tiles } = message.chunk;
+      let { x, y, tiles } = message.chunk;
       const chunkKey = `${x},${y}`;
+      if (tiles && tiles.length > 0 && Array.isArray(tiles[0])) {
+        tiles = tiles.map((t: any) => ({
+          x: t[0],
+          y: t[1],
+          h: t[2],
+          nH: t[3],
+          w: t[4] === 1,
+          t: t[5],
+          p: t[6],
+          stp: t[7],
+          b: t[8],
+          c: t[9],
+          iC: t[10] === 1,
+          wT: t[11],
+          v: t[12],
+          vT: t[13],
+          sT: t[14],
+        }));
+      }
       this.processChunkData({ x, y, tiles });
       this.loadedChunks.add(chunkKey);
       this.pendingChunks.delete(chunkKey);

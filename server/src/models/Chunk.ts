@@ -28,7 +28,7 @@ initDB();
 export type ChunkData = {
   x: number;
   y: number;
-  tiles: TerrainPoint[];
+  tiles: any[];
   terrain?: TerrainPoint[][];
 };
 

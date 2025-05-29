@@ -1,4 +1,5 @@
 import { INetworkAdapter } from "./INetworkAdapter";
+import pako from 'pako';
 
 export class WebSocketAdapter implements INetworkAdapter {
   private socket: WebSocket | null = null;
@@ -12,6 +13,7 @@ export class WebSocketAdapter implements INetworkAdapter {
     return new Promise((resolve, reject) => {
       this.readyState = "connecting";
       this.socket = new WebSocket(this.url);
+      this.socket.binaryType = 'arraybuffer';
       
       this.socket.onopen = () => {
         this.readyState = "open";
@@ -32,7 +34,13 @@ export class WebSocketAdapter implements INetworkAdapter {
       
       this.socket.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
+          let data;
+          if (event.data instanceof ArrayBuffer) {
+            const decompressed = pako.inflate(new Uint8Array(event.data), { to: 'string' });
+            data = JSON.parse(decompressed.toString());
+          } else {
+            data = JSON.parse(event.data);
+          }
           if (this.messageCallback) {
             this.messageCallback(data);
           }
