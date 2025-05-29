@@ -13,15 +13,15 @@ export class WorldGenerator {
 
   generateChunk(chunkX: number, chunkY: number, chunkSize: number = 10): TerrainPoint[][] {
     const terrain: TerrainPoint[][] = [];
-    this.heightCache.clear(); // Clear cache for each new chunk
+    // Removed cache clear to persist heights across chunks for performance
 
-    // First pass: generate and cache all height values
+    // First pass: generate and cache all height values if not already cached
     for (let y = 0; y < chunkSize; y++) {
       for (let x = 0; x < chunkSize; x++) {
         const worldX = chunkX * chunkSize + x;
         const worldY = chunkY * chunkSize + y;
-        const height = this.noiseGen.generateHeight(worldX, worldY);
-        this.cacheHeight(worldX, worldY, height);
+        // Use getCachedHeight to compute if not present
+        this.getCachedHeight(worldX, worldY);
       }
     }
 
