@@ -12,13 +12,14 @@ export class NoiseGenerator {
     this.noise3D = createNoise3D(() => this.seed);
   }
 
-  // Generate fractal Brownian motion noise
-  fbm(x: number, y: number, octaves: number = 6, lacunarity: number = 2.0, persistence: number = 0.5): number {
+  // Generate fractal Brownian motion noise (optimized)
+  fbm(x: number, y: number, octaves: number = 4, lacunarity: number = 2.0, persistence: number = 0.5): number {
     let value = 0;
     let amplitude = 1.0;
     let frequency = 1.0;
     let maxValue = 0;
 
+    // Reduced octaves for better performance
     for (let i = 0; i < octaves; i++) {
       value += amplitude * this.noise2D(x * frequency, y * frequency);
       maxValue += amplitude;
@@ -37,10 +38,10 @@ export class NoiseGenerator {
     return [warpX, warpY];
   }
 
-  // Generate height map with domain warping
+  // Generate height map with domain warping (optimized)
   generateHeight(x: number, y: number): number {
     const [warpX, warpY] = this.domainWarp(x, y);
-    return this.fbm(warpX * 0.01, warpY * 0.01, 6, 2.0, 0.5);
+    return this.fbm(warpX * 0.01, warpY * 0.01, 4, 2.0, 0.5);
   }
 
   // Generate temperature map (affected by height and latitude)

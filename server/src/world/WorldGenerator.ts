@@ -5,7 +5,13 @@ export class WorldGenerator {
   private noiseGen: NoiseGenerator;
   private seaLevel: number = 0.4; // Normalized height for sea level
 
+  // Persistent caches that don't clear between chunks
   private heightCache: Map<string, number> = new Map();
+  private temperatureCache: Map<string, number> = new Map();
+  private precipitationCache: Map<string, number> = new Map();
+  
+  // Cache size limits to prevent memory bloat
+  private readonly MAX_CACHE_SIZE = 10000;
 
   constructor(seed?: number) {
     this.noiseGen = new NoiseGenerator(seed);
@@ -13,29 +19,35 @@ export class WorldGenerator {
 
   generateChunk(chunkX: number, chunkY: number, chunkSize: number = 10): TerrainPoint[][] {
     const terrain: TerrainPoint[][] = [];
-    this.heightCache.clear(); // Clear cache for each new chunk
-
-    // First pass: generate and cache all height values
+    
+    // Pre-generate all coordinates for batch processing
+    const coordinates: Array<{x: number, y: number, worldX: number, worldY: number}> = [];
     for (let y = 0; y < chunkSize; y++) {
       for (let x = 0; x < chunkSize; x++) {
         const worldX = chunkX * chunkSize + x;
         const worldY = chunkY * chunkSize + y;
-        const height = this.noiseGen.generateHeight(worldX, worldY);
-        this.cacheHeight(worldX, worldY, height);
+        coordinates.push({x, y, worldX, worldY});
       }
     }
 
-    // Second pass: generate terrain points using cached heights
+    // Batch generate heights with extended area for neighbor calculations
+    this.batchGenerateHeights(coordinates, chunkSize);
+    
+    // Batch generate temperature and precipitation
+    this.batchGenerateClimate(coordinates);
+
+    // Generate terrain points using cached values
     for (let y = 0; y < chunkSize; y++) {
       terrain[y] = [];
       for (let x = 0; x < chunkSize; x++) {
         const worldX = chunkX * chunkSize + x;
         const worldY = chunkY * chunkSize + y;
-        terrain[y][x] = this.generateTerrainPoint(worldX, worldY);
+        terrain[y][x] = this.generateTerrainPointFast(worldX, worldY);
       }
     }
 
     this.postProcessChunk(terrain, chunkSize);
+    this.manageCacheSize(); // Prevent memory bloat
     return terrain;
   }
 
@@ -52,6 +64,106 @@ export class WorldGenerator {
       return height;
     }
     return cached;
+  }
+
+  private batchGenerateHeights(coordinates: Array<{x: number, y: number, worldX: number, worldY: number}>, chunkSize: number): void {
+    // Generate heights for chunk area plus neighbors for steepness calculation
+    const extendedCoords = new Set<string>();
+    
+    // Add main coordinates and their neighbors
+    for (const coord of coordinates) {
+      extendedCoords.add(`${coord.worldX},${coord.worldY}`);
+      extendedCoords.add(`${coord.worldX + 1},${coord.worldY}`);
+      extendedCoords.add(`${coord.worldX},${coord.worldY + 1}`);
+    }
+    
+    // Batch generate all heights
+    for (const coordStr of extendedCoords) {
+      const [x, y] = coordStr.split(',').map(Number);
+      if (!this.heightCache.has(coordStr)) {
+        const height = this.noiseGen.generateHeight(x, y);
+        this.heightCache.set(coordStr, height);
+      }
+    }
+  }
+
+  private batchGenerateClimate(coordinates: Array<{x: number, y: number, worldX: number, worldY: number}>): void {
+    // Batch generate temperature and precipitation for all coordinates
+    for (const coord of coordinates) {
+      const key = `${coord.worldX},${coord.worldY}`;
+      
+      if (!this.temperatureCache.has(key)) {
+        const height = this.heightCache.get(key)!;
+        const normalizedHeight = (height + 1) * 0.5;
+        const temperature = this.noiseGen.generateTemperature(coord.worldX, coord.worldY, normalizedHeight);
+        this.temperatureCache.set(key, temperature);
+      }
+      
+      if (!this.precipitationCache.has(key)) {
+        const height = this.heightCache.get(key)!;
+        const normalizedHeight = (height + 1) * 0.5;
+        const temperature = this.temperatureCache.get(key)!;
+        const precipitation = this.noiseGen.generatePrecipitation(coord.worldX, coord.worldY, normalizedHeight, temperature);
+        this.precipitationCache.set(key, precipitation);
+      }
+    }
+  }
+
+  private generateTerrainPointFast(x: number, y: number): TerrainPoint {
+    // Use cached values for faster generation
+    const height = this.heightCache.get(`${x},${y}`)!;
+    const h1 = this.heightCache.get(`${x + 1},${y}`)!;
+    const h2 = this.heightCache.get(`${x},${y + 1}`)!;
+    const temperature = this.temperatureCache.get(`${x},${y}`)!;
+    const precipitation = this.precipitationCache.get(`${x},${y}`)!;
+
+    const normalizedHeight = (height + 1) * 0.5;
+    const steepness = Math.min(1, (Math.abs(height - h1) + Math.abs(height - h2)) * 5);
+    const isWater = normalizedHeight < this.seaLevel;
+
+    const point: TerrainPoint = {
+      x,
+      y,
+      h: height,
+      nH: normalizedHeight,
+      w: isWater,
+      t: temperature,
+      p: precipitation,
+      stp: steepness,
+      b: Biome.GRASSLAND,
+      c: ColorIndex.GRASSLAND,
+      _possibleBeach: false
+    };
+
+    this.assignTerrainProperties(point);
+    return point;
+  }
+
+  private manageCacheSize(): void {
+    // Prevent memory bloat by clearing oldest entries when cache gets too large
+    if (this.heightCache.size > this.MAX_CACHE_SIZE) {
+      const entries = Array.from(this.heightCache.entries());
+      const toDelete = entries.slice(0, Math.floor(this.MAX_CACHE_SIZE * 0.3));
+      for (const [key] of toDelete) {
+        this.heightCache.delete(key);
+      }
+    }
+    
+    if (this.temperatureCache.size > this.MAX_CACHE_SIZE) {
+      const entries = Array.from(this.temperatureCache.entries());
+      const toDelete = entries.slice(0, Math.floor(this.MAX_CACHE_SIZE * 0.3));
+      for (const [key] of toDelete) {
+        this.temperatureCache.delete(key);
+      }
+    }
+    
+    if (this.precipitationCache.size > this.MAX_CACHE_SIZE) {
+      const entries = Array.from(this.precipitationCache.entries());
+      const toDelete = entries.slice(0, Math.floor(this.MAX_CACHE_SIZE * 0.3));
+      for (const [key] of toDelete) {
+        this.precipitationCache.delete(key);
+      }
+    }
   }
 
   private generateTerrainPoint(x: number, y: number): TerrainPoint {

@@ -5,6 +5,8 @@ import { createServer } from "http";
 import dotenv from "dotenv";
 import { findChunk, saveChunk, ChunkData } from "./models/Chunk";
 import { WorldGenerator } from "./world/WorldGenerator";
+import { Worker } from "worker_threads";
+import path from "path";
 
 dotenv.config();
 
@@ -24,43 +26,54 @@ app.use((req, res, next) => {
 });
 const port = process.env.PORT || 15432;
 
-// Initialize world generator with a fixed seed for consistency
-const worldGenerator = new WorldGenerator(12345);
+// Worker pool for chunk generation
+const WORKER_POOL_SIZE = 4;
+const workers: Worker[] = [];
+const pendingRequests = new Map<string, { resolve: Function, reject: Function, ws: any }>();
+let requestCounter = 0;
 
-// Generate a chunk with realistic terrain
-const generateChunk = (x: number, y: number): ChunkData => {
-  // Generate detailed terrain data
-  const terrain = worldGenerator.generateChunk(x, y, 10);
-
-  let tiles = [];
-  for (let row of terrain) {
-    for (let point of row) {
-      const h = Math.round(point.h * 100) / 100;
-      const nH = Math.round(point.nH * 100) / 100;
-      const t = Math.round(point.t * 100) / 100;
-      const p = Math.round(point.p * 100) / 100;
-      const stp = Math.round(point.stp * 100) / 100;
-      const v = point.v ? Math.round(point.v * 100) / 100 : 0;
-      tiles.push([
-        point.x,
-        point.y,
-        h,
-        nH,
-        point.w ? 1 : 0,
-        t,
-        p,
-        stp,
-        point.b,
-        point.c,
-        point.iC ? 1 : 0,
-        point.wT || 0,
-        v,
-        point.vT || 0,
-        point.sT || 0
-      ]);
+// Initialize worker pool
+for (let i = 0; i < WORKER_POOL_SIZE; i++) {
+  const worker = new Worker(path.join(__dirname, 'workers', 'ChunkWorker.js'));
+  
+  worker.on('message', (data) => {
+    const { success, chunk, error, requestId } = data;
+    const request = pendingRequests.get(requestId);
+    
+    if (request) {
+      pendingRequests.delete(requestId);
+      if (success) {
+        request.resolve(chunk);
+      } else {
+        request.reject(new Error(error));
+      }
     }
-  }
-  return { x, y, tiles, terrain };
+  });
+  
+  worker.on('error', (error) => {
+    console.error('Worker error:', error);
+  });
+  
+  workers.push(worker);
+}
+
+// Generate chunk using worker thread
+const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> => {
+  return new Promise((resolve, reject) => {
+    const requestId = `req_${++requestCounter}`;
+    const worker = workers[requestCounter % workers.length];
+    
+    pendingRequests.set(requestId, { resolve, reject, ws });
+    worker.postMessage({ x, y, requestId });
+    
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      if (pendingRequests.has(requestId)) {
+        pendingRequests.delete(requestId);
+        reject(new Error('Chunk generation timeout'));
+      }
+    }, 30000);
+  });
 };
 
 // Shared player state
@@ -99,24 +112,30 @@ async function handleMessage(
       return;
     }
 
-    let chunk = findChunk(x, y);
-    if (!chunk) {
-      const generatedChunk = generateChunk(x, y);
-      saveChunk(generatedChunk);
-      chunk = generatedChunk;
+    try {
+      let chunk = findChunk(x, y);
+      if (!chunk) {
+        // Generate chunk using worker thread
+        const generatedChunk = await generateChunkAsync(x, y, ws);
+        saveChunk(generatedChunk);
+        chunk = generatedChunk;
+      }
+
+      const clientChunk = {
+        x: chunk.x,
+        y: chunk.y,
+        tiles: chunk.tiles
+      };
+
+      const chunkResponse = { type: "chunkData", chunk: clientChunk };
+      const chunkData = JSON.stringify(chunkResponse);
+      zlib.gzip(chunkData, (err, compressed) => {
+        if (!err) ws.send(compressed, { binary: true });
+      });
+    } catch (error) {
+      console.error('Error generating chunk:', error);
+      ws.send(JSON.stringify({ type: "error", message: "Failed to generate chunk" }));
     }
-
-    const clientChunk = {
-      x: chunk.x,
-      y: chunk.y,
-      tiles: chunk.tiles
-    };
-
-    const chunkResponse = { type: "chunkData", chunk: clientChunk };
-    const chunkData = JSON.stringify(chunkResponse);
-    zlib.gzip(chunkData, (err, compressed) => {
-      if (!err) ws.send(compressed, { binary: true });
-    });
   } else if (message.type === "move") {
     const { x, y } = message;
     players[playerId] = { x, y };
