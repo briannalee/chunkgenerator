@@ -10,9 +10,9 @@ export class GameScene extends Phaser.Scene {
   private gameLogic!: GameLogic;
   private player!: Phaser.GameObjects.Rectangle;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private tilesGroup!: Phaser.GameObjects.Group;
   private players: Record<string, Phaser.GameObjects.Rectangle> = {};
   private renderedChunks: Set<string> = new Set();
+  private chunkGraphics: Map<string, Phaser.GameObjects.Graphics> = new Map();
 
   constructor() {
     super({ key: "GameScene" });
@@ -23,10 +23,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   async create() {
-
     this.player = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE, 0xff0000).setDepth(1);
     this.cursors = this.input.keyboard!.createCursorKeys();
-    this.tilesGroup = this.add.group();
 
     // Set initial camera position and zoom
     this.cameras.main.startFollow(this.player);
@@ -144,53 +142,42 @@ export class GameScene extends Phaser.Scene {
 
 private renderChunk(chunkData: ChunkData) {
     const { x: chunkX, y: chunkY, tiles } = chunkData;
+    const chunkKey = `${chunkX},${chunkY}`;
     const startX = chunkX * CHUNK_SIZE * TILE_SIZE;
     const startY = chunkY * CHUNK_SIZE * TILE_SIZE;
+
+    let graphics = this.chunkGraphics.get(chunkKey);
+    if (!graphics) {
+      graphics = this.add.graphics();
+      this.chunkGraphics.set(chunkKey, graphics);
+    }
 
     tiles.forEach((tile) => {
       const tileWorldX = tile.x * TILE_SIZE;
       const tileWorldY = tile.y * TILE_SIZE;
 
-      const color = this.gameLogic.getTileColor(tile);
-      const tileRect = this.add.rectangle(
-        tileWorldX,
-        tileWorldY,
-        TILE_SIZE,
-        TILE_SIZE,
-        color
-      ).setOrigin(0);
-
-      // Add visual details based on terrain properties
-      if (tile.iC) {
-        tileRect.setStrokeStyle(1, 0x333333); // Cliff edges
-      }
-
+      let color = this.gameLogic.getTileColor(tile);
       if (!tile.w && tile.stp > 0.5) {
-        tileRect.setFillStyle(this.gameLogic.darkenColor(color, 0.2)); // Steeper slopes
+        color = this.gameLogic.darkenColor(color, 0.2); // Steeper slopes
       }
 
-      this.tilesGroup.add(tileRect);
+      graphics.fillStyle(color, 1);
+      graphics.fillRect(tileWorldX, tileWorldY, TILE_SIZE, TILE_SIZE);
+
+      if (tile.iC) {
+        graphics.lineStyle(1, 0x333333); // Cliff edges
+        graphics.strokeRect(tileWorldX, tileWorldY, TILE_SIZE, TILE_SIZE);
+      }
     });
   }
 
 
   private unloadRenderedChunk(chunkKey: string) {
-    const [chunkX, chunkY] = chunkKey.split(',').map(Number);
-    const startX = chunkX * CHUNK_SIZE * TILE_SIZE;
-    const startY = chunkY * CHUNK_SIZE * TILE_SIZE;
-    const endX = startX + CHUNK_SIZE * TILE_SIZE;
-    const endY = startY + CHUNK_SIZE * TILE_SIZE;
-
-    const tilesToRemove: Phaser.GameObjects.GameObject[] = [];
-    this.tilesGroup.getChildren().forEach((tile: any) => {
-      const tileX = tile.x;
-      const tileY = tile.y;
-      if (tileX >= startX && tileX < endX && tileY >= startY && tileY < endY) {
-        tilesToRemove.push(tile);
-      }
-    });
-
-    tilesToRemove.forEach(tile => tile.destroy());
+    const graphics = this.chunkGraphics.get(chunkKey);
+    if (graphics) {
+      graphics.destroy();
+      this.chunkGraphics.delete(chunkKey);
+    }
     this.renderedChunks.delete(chunkKey);
   }
 
@@ -223,7 +210,7 @@ private renderChunk(chunkData: ChunkData) {
     const stats = this.gameLogic.getMemoryStats();
     console.log(
       `Memory: ${stats.loadedChunks} chunks, ${stats.pendingChunks} pending, ` +
-      `${this.tilesGroup.getChildren().length} tiles, ${stats.players} players`
+      `${this.chunkGraphics.size} graphics, ${stats.players} players`
     );
   }
 }

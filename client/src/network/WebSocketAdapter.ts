@@ -36,7 +36,7 @@ export class WebSocketAdapter implements INetworkAdapter {
         try {
           let data;
           if (event.data instanceof ArrayBuffer) {
-            const decompressed = pako.inflate(new Uint8Array(event.data), { to: 'string' });
+            const decompressed = pako.ungzip(new Uint8Array(event.data), { to: 'string' });
             data = JSON.parse(decompressed.toString());
           } else {
             data = JSON.parse(event.data);

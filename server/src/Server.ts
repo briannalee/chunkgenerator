@@ -27,48 +27,48 @@ const port = process.env.PORT || 15432;
 // Initialize world generator with a fixed seed for consistency
 const worldGenerator = new WorldGenerator(12345);
 
-  // Generate a chunk with realistic terrain
-  const generateChunk = (x: number, y: number): ChunkData => {
-    // Generate detailed terrain data
-    const terrain = worldGenerator.generateChunk(x, y, 10);
+// Generate a chunk with realistic terrain
+const generateChunk = (x: number, y: number): ChunkData => {
+  // Generate detailed terrain data
+  const terrain = worldGenerator.generateChunk(x, y, 10);
 
-    let tiles = [];
-    for (let row of terrain) {
-      for (let point of row) {
-        const h = Math.round(point.h * 100) / 100;
-        const nH = Math.round(point.nH * 100) / 100;
-        const t = Math.round(point.t * 100) / 100;
-        const p = Math.round(point.p * 100) / 100;
-        const stp = Math.round(point.stp * 100) / 100;
-        const v = point.v ? Math.round(point.v * 100) / 100 : 0;
-        tiles.push([
-          point.x,
-          point.y,
-          h,
-          nH,
-          point.w ? 1 : 0,
-          t,
-          p,
-          stp,
-          point.b,
-          point.c,
-          point.iC ? 1 : 0,
-          point.wT || 0,
-          v,
-          point.vT || 0,
-          point.sT || 0
-        ]);
-      }
+  let tiles = [];
+  for (let row of terrain) {
+    for (let point of row) {
+      const h = Math.round(point.h * 100) / 100;
+      const nH = Math.round(point.nH * 100) / 100;
+      const t = Math.round(point.t * 100) / 100;
+      const p = Math.round(point.p * 100) / 100;
+      const stp = Math.round(point.stp * 100) / 100;
+      const v = point.v ? Math.round(point.v * 100) / 100 : 0;
+      tiles.push([
+        point.x,
+        point.y,
+        h,
+        nH,
+        point.w ? 1 : 0,
+        t,
+        p,
+        stp,
+        point.b,
+        point.c,
+        point.iC ? 1 : 0,
+        point.wT || 0,
+        v,
+        point.vT || 0,
+        point.sT || 0
+      ]);
     }
-    return { x, y, tiles, terrain };
-  };
+  }
+  return { x, y, tiles, terrain };
+};
 
 // Shared player state
 const players: Record<string, { x: number; y: number }> = {};
 
 // WebSocket server setup
 const httpServer = createServer(app);
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ server: httpServer, perMessageDeflate: true });
 
 wss.on("connection", (ws) => {
   const id = Math.random().toString(36).substr(2, 9);
@@ -98,24 +98,25 @@ async function handleMessage(
       ws.send(JSON.stringify({ type: "error", message: "Invalid coordinates" }));
       return;
     }
-    
+
     let chunk = findChunk(x, y);
     if (!chunk) {
       const generatedChunk = generateChunk(x, y);
       saveChunk(generatedChunk);
       chunk = generatedChunk;
     }
-    
+
     const clientChunk = {
       x: chunk.x,
       y: chunk.y,
       tiles: chunk.tiles
     };
-    
+
     const chunkResponse = { type: "chunkData", chunk: clientChunk };
     const chunkData = JSON.stringify(chunkResponse);
-    const compressed = zlib.gzipSync(chunkData);
-    ws.send(compressed);
+    zlib.gzip(chunkData, (err, compressed) => {
+      if (!err) ws.send(compressed, { binary: true });
+    });
   } else if (message.type === "move") {
     const { x, y } = message;
     players[playerId] = { x, y };
