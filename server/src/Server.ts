@@ -106,7 +106,6 @@ async function handleMessage(
       chunk = generatedChunk;
     }
     
-    // Don't send the detailed terrain data to the client, just the simplified tiles
     const clientChunk = {
       x: chunk.x,
       y: chunk.y,
