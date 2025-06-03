@@ -75,7 +75,6 @@ export class GameLogic {
 
   constructor() {
     this.networkAdapter = NetworkFactory.createAdapter();
-    this.connect();
   }
 
   public async connect() {

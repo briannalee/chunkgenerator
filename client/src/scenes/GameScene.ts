@@ -18,8 +18,16 @@ export class GameScene extends Phaser.Scene {
     super({ key: "GameScene" });
   }
 
-  preload() {
+  async preload() {
     this.gameLogic = new GameLogic();
+    // Wait for connection to establish
+    try {
+      console.log("Connecting...")
+      await this.gameLogic.connect();
+      console.log("Connected to server");
+    } catch (err) {
+      console.error("Connection failed:", err);
+    }
   }
   
 
@@ -37,15 +45,6 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.height,
       this.cameras.main.zoom
     );
-
-
-    // Wait for connection to establish
-    try {
-      await this.gameLogic.connect(); // Make sure this returns a Promise
-      console.log("Connected to server");
-    } catch (err) {
-      console.error("Connection failed:", err);
-    }
 
     // Set initial player position in game logic
     this.gameLogic.updatePlayerPosition(this.player.x, this.player.y);
