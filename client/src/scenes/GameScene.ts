@@ -21,6 +21,7 @@ export class GameScene extends Phaser.Scene {
   preload() {
     this.gameLogic = new GameLogic();
   }
+  
 
   async create() {
     this.player = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE, 0xff0000).setDepth(1);
@@ -88,11 +89,12 @@ export class GameScene extends Phaser.Scene {
 
     if (prevX !== this.player.x || prevY !== this.player.y) {
       this.gameLogic.updatePlayerPosition(this.player.x, this.player.y);
+    }
 
-      if (this.gameLogic.shouldUpdateChunks()) {
-        this.gameLogic.updateChunkTracking();
-        this.updateVisibleChunks();
-      }
+    // Always check for chunk updates when moving or periodically
+    if (this.gameLogic.shouldUpdateChunks()) {
+      this.gameLogic.updateChunkTracking();
+      this.updateVisibleChunks();
     }
 
     // Check if camera zoom changed
@@ -104,6 +106,9 @@ export class GameScene extends Phaser.Scene {
       );
       this.updateVisibleChunks();
     }
+
+    // Continuously check for pending chunks to load
+    this.gameLogic.checkPendingChunks();
 
     // Render any newly loaded chunks
     this.renderLoadedChunks();

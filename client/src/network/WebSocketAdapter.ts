@@ -6,7 +6,6 @@ export class WebSocketAdapter implements INetworkAdapter {
   private messageCallback: ((data: unknown) => void) | null = null;
   private disconnectCallback: (() => void) | null = null;
   readyState: "connecting" | "open" | "closing" | "closed" = "closed";
-
   constructor(private url: string) {}
 
   async connect(): Promise<void> {
@@ -14,7 +13,8 @@ export class WebSocketAdapter implements INetworkAdapter {
       this.readyState = "connecting";
       this.socket = new WebSocket(this.url);
       this.socket.binaryType = 'arraybuffer';
-      
+
+
       this.socket.onopen = () => {
         this.readyState = "open";
         resolve();
