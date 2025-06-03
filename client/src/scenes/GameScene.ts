@@ -3,7 +3,7 @@ import { CHUNK_SIZE, GameLogic, TILE_SIZE } from "../logic/GameLogic";
 import { ChunkData } from "../types/types";
 
 
-const DEBUG_MODE = false;
+const DEBUG_MODE = true;
 
 
 export class GameScene extends Phaser.Scene {
@@ -37,13 +37,13 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.zoom
     );
 
-        
+
     // Wait for connection to establish
     try {
-        await this.gameLogic.connect(); // Make sure this returns a Promise
-        console.log("Connected to server");
+      await this.gameLogic.connect(); // Make sure this returns a Promise
+      console.log("Connected to server");
     } catch (err) {
-        console.error("Connection failed:", err);
+      console.error("Connection failed:", err);
     }
 
     // Set initial player position in game logic
@@ -62,6 +62,16 @@ export class GameScene extends Phaser.Scene {
       );
       this.updateVisibleChunks();
     });
+
+    if (DEBUG_MODE) {
+      this.time.addEvent({
+        delay: 2000,
+        loop: true,
+        callback: () => {
+          this.debugMemoryUsage();
+        }
+      });
+    }
   }
 
   update(time: number, delta: number) {
@@ -82,10 +92,6 @@ export class GameScene extends Phaser.Scene {
       if (this.gameLogic.shouldUpdateChunks()) {
         this.gameLogic.updateChunkTracking();
         this.updateVisibleChunks();
-      }
-
-      if (DEBUG_MODE) {
-        this.debugMemoryUsage();
       }
     }
 
@@ -140,7 +146,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-private renderChunk(chunkData: ChunkData) {
+  private renderChunk(chunkData: ChunkData) {
     const { x: chunkX, y: chunkY, tiles } = chunkData;
     const chunkKey = `${chunkX},${chunkY}`;
     const startX = chunkX * CHUNK_SIZE * TILE_SIZE;
