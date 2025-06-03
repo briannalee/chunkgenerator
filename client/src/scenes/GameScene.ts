@@ -122,7 +122,8 @@ export class GameScene extends Phaser.Scene {
     if (visibleChunksString !== lastVisibleChunksString) {
       this.gameLogic.lastVisibleChunks = visibleChunks;
       this.gameLogic.checkPendingChunks();
-      this.gameLogic.unloadDistantChunks();
+      const chunksToUnload = this.gameLogic.unloadDistantChunks();
+      this.gameLogic.removeChunks(chunksToUnload);
 
       // Clean up rendered chunks that were unloaded
       for (const chunkKey of this.renderedChunks) {
