@@ -27,10 +27,14 @@ app.use((req, res, next) => {
 const port = process.env.PORT || 15432;
 
 // Worker pool for chunk generation
-const WORKER_POOL_SIZE = 4;
+const WORKER_POOL_SIZE = 16;
 const workers: Worker[] = [];
 const pendingRequests = new Map<string, { resolve: Function, reject: Function, ws: any }>();
 let requestCounter = 0;
+
+// Chunk cache to avoid regenerating the same chunks
+const chunkCache = new Map<string, ChunkData>();
+const CACHE_SIZE_LIMIT = 1000; // Limit cache size to prevent memory issues
 
 // Initialize worker pool
 for (let i = 0; i < WORKER_POOL_SIZE; i++) {
@@ -66,14 +70,35 @@ const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> =
     pendingRequests.set(requestId, { resolve, reject, ws });
     worker.postMessage({ x, y, requestId });
     
-    // Timeout after 30 seconds
+    // Reduced timeout for faster failure detection
     setTimeout(() => {
       if (pendingRequests.has(requestId)) {
         pendingRequests.delete(requestId);
         reject(new Error('Chunk generation timeout'));
       }
-    }, 30000);
+    }, 10000); // Reduced from 30s to 10s
   });
+};
+
+// Cache management functions
+const getCachedChunk = (x: number, y: number): ChunkData | null => {
+  const key = `${x},${y}`;
+  return chunkCache.get(key) || null;
+};
+
+const setCachedChunk = (chunk: ChunkData): void => {
+  const key = `${chunk.x},${chunk.y}`;
+  
+  // Manage cache size
+  if (chunkCache.size >= CACHE_SIZE_LIMIT) {
+    // Remove oldest entries (simple FIFO)
+    const firstKey = chunkCache.keys().next().value;
+    if (firstKey) {
+      chunkCache.delete(firstKey);
+    }
+  }
+  
+  chunkCache.set(key, chunk);
 };
 
 // Shared player state
@@ -113,12 +138,23 @@ async function handleMessage(
     }
 
     try {
-      let chunk = findChunk(x, y);
+      // Check memory cache first
+      let chunk = getCachedChunk(x, y);
+      
       if (!chunk) {
-        // Generate chunk using worker thread
-        const generatedChunk = await generateChunkAsync(x, y, ws);
-        saveChunk(generatedChunk);
-        chunk = generatedChunk;
+        // Check database
+        chunk = findChunk(x, y);
+        
+        if (chunk) {
+          // Cache the chunk from database
+          setCachedChunk(chunk);
+        } else {
+          // Generate chunk using worker thread
+          const generatedChunk = await generateChunkAsync(x, y, ws);
+          saveChunk(generatedChunk);
+          setCachedChunk(generatedChunk);
+          chunk = generatedChunk;
+        }
       }
 
       const clientChunk = {

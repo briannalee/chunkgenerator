@@ -28,9 +28,10 @@ export interface MemoryStats {
 
 export const CHUNK_SIZE: number = 10;
 export const TILE_SIZE: number = 8;
-export const CHUNK_BUFFER: number = 1;
-export const MAX_PENDING_REQUESTS: number = 4;
+export const CHUNK_BUFFER: number = 2; // Increased buffer for smoother experience
+export const MAX_PENDING_REQUESTS: number = 12; // Increased concurrent requests
 export const FRAME_HISTORY_SIZE: number = 300;
+export const PREDICTIVE_BUFFER: number = 3; // Additional buffer for predictive loading
 
 export class GameLogic {
   // Configuration
@@ -47,6 +48,12 @@ export class GameLogic {
   public lastPlayerChunkX: number = 0;
   public lastPlayerChunkY: number = 0;
   public lastChunkCheck: number = 0;
+
+  // Movement tracking for predictive loading
+  private lastPlayerPosition: PlayerData = { x: 0, y: 0 };
+  private playerVelocity: PlayerData = { x: 0, y: 0 };
+  private movementHistory: PlayerData[] = [];
+  private readonly MOVEMENT_HISTORY_SIZE = 10;
 
   // Viewport settings
   public viewport: Viewport = {
@@ -68,7 +75,6 @@ export class GameLogic {
 
   constructor() {
     this.networkAdapter = NetworkFactory.createAdapter();
-    this.connect();
   }
 
   public async connect() {
@@ -181,13 +187,21 @@ export class GameLogic {
     if (this.networkAdapter.readyState !== 'open') return [];
 
     const visibleChunks = this.getVisibleChunkKeys();
-    const chunksToRequest = visibleChunks.filter(
+    const predictiveChunks = this.getPredictiveChunkKeys();
+    
+    // Combine visible and predictive chunks, prioritizing visible chunks
+    const allChunks = [...new Set([...visibleChunks, ...predictiveChunks])];
+    
+    const chunksToRequest = allChunks.filter(
       chunkKey => !this.loadedChunks.has(chunkKey) && !this.pendingChunks.has(chunkKey)
     );
 
+    // Prioritize chunks: visible chunks first, then predictive chunks
+    const prioritizedChunks = this.prioritizeChunks(chunksToRequest, visibleChunks);
+
     const availableSlots = MAX_PENDING_REQUESTS - this.pendingChunks.size;
-    if (availableSlots > 0 && chunksToRequest.length > 0) {
-      const chunksToLoad = chunksToRequest.slice(0, availableSlots);
+    if (availableSlots > 0 && prioritizedChunks.length > 0) {
+      const chunksToLoad = prioritizedChunks.slice(0, availableSlots);
 
       for (const chunkKey of chunksToLoad) {
         const [x, y] = chunkKey.split(',').map(Number);
@@ -198,6 +212,30 @@ export class GameLogic {
       return chunksToLoad;
     }
     return [];
+  }
+
+  private prioritizeChunks(chunksToRequest: string[], visibleChunks: string[]): string[] {
+    const playerChunkSize = CHUNK_SIZE * TILE_SIZE;
+    const playerChunkX = Math.floor(this.playerPosition.x / playerChunkSize);
+    const playerChunkY = Math.floor(this.playerPosition.y / playerChunkSize);
+
+    return chunksToRequest.sort((a, b) => {
+      const [aX, aY] = a.split(',').map(Number);
+      const [bX, bY] = b.split(',').map(Number);
+
+      // Prioritize visible chunks over predictive chunks
+      const aIsVisible = visibleChunks.includes(a);
+      const bIsVisible = visibleChunks.includes(b);
+      
+      if (aIsVisible && !bIsVisible) return -1;
+      if (!aIsVisible && bIsVisible) return 1;
+
+      // Within the same category, prioritize by distance from player
+      const aDistance = Math.abs(aX - playerChunkX) + Math.abs(aY - playerChunkY);
+      const bDistance = Math.abs(bX - playerChunkX) + Math.abs(bY - playerChunkY);
+
+      return aDistance - bDistance;
+    });
   }
 
   public addPendingChunks(chunkKeys: string[]): void {
@@ -390,8 +428,79 @@ export class GameLogic {
   }
 
   public updatePlayerPosition(x: number, y: number): void {
+    // Update movement tracking
+    this.updateMovementTracking(x, y);
+    
     this.playerPosition = { x, y };
     this.networkAdapter.send({ type: "move", x, y });
+  }
+
+  private updateMovementTracking(x: number, y: number): void {
+    // Calculate velocity
+    this.playerVelocity = {
+      x: x - this.lastPlayerPosition.x,
+      y: y - this.lastPlayerPosition.y
+    };
+
+    // Update movement history
+    this.movementHistory.push({ ...this.playerVelocity });
+    if (this.movementHistory.length > this.MOVEMENT_HISTORY_SIZE) {
+      this.movementHistory.shift();
+    }
+
+    this.lastPlayerPosition = { x, y };
+  }
+
+  private getPredictedPosition(): PlayerData {
+    if (this.movementHistory.length === 0) {
+      return { ...this.playerPosition };
+    }
+
+    // Calculate average velocity over recent history
+    const avgVelocity = this.movementHistory.reduce(
+      (acc, vel) => ({ x: acc.x + vel.x, y: acc.y + vel.y }),
+      { x: 0, y: 0 }
+    );
+    avgVelocity.x /= this.movementHistory.length;
+    avgVelocity.y /= this.movementHistory.length;
+
+    // Predict position several frames ahead
+    const predictionFrames = 30; // Predict 30 frames ahead
+    return {
+      x: this.playerPosition.x + (avgVelocity.x * predictionFrames),
+      y: this.playerPosition.y + (avgVelocity.y * predictionFrames)
+    };
+  }
+
+  public getPredictiveChunkKeys(): string[] {
+    const predictedPos = this.getPredictedPosition();
+    const chunkSize = CHUNK_SIZE * TILE_SIZE;
+    
+    // Calculate visible area around predicted position
+    const halfWidth = (this.viewport.width / this.viewport.zoom) / 2;
+    const halfHeight = (this.viewport.height / this.viewport.zoom) / 2;
+
+    const predictedBounds = {
+      left: predictedPos.x - halfWidth,
+      right: predictedPos.x + halfWidth,
+      top: predictedPos.y - halfHeight,
+      bottom: predictedPos.y + halfHeight
+    };
+
+    // Convert to chunk coordinates with predictive buffer
+    const startChunkX = Math.floor(predictedBounds.left / chunkSize) - PREDICTIVE_BUFFER;
+    const endChunkX = Math.floor(predictedBounds.right / chunkSize) + PREDICTIVE_BUFFER;
+    const startChunkY = Math.floor(predictedBounds.top / chunkSize) - PREDICTIVE_BUFFER;
+    const endChunkY = Math.floor(predictedBounds.bottom / chunkSize) + PREDICTIVE_BUFFER;
+
+    const predictiveChunks: string[] = [];
+    for (let x = startChunkX; x <= endChunkX; x++) {
+      for (let y = startChunkY; y <= endChunkY; y++) {
+        predictiveChunks.push(`${x},${y}`);
+      }
+    }
+
+    return predictiveChunks;
   }
 
   public updateViewport(width: number, height: number, zoom: number): void {
@@ -443,12 +552,12 @@ export class GameLogic {
     const currentChunkX = Math.floor(this.playerPosition.x / chunkSize);
     const currentChunkY = Math.floor(this.playerPosition.y / chunkSize);
     const now = Date.now();
-    const throttleTime = 100;
+    const throttleTime = 50; // Reduced throttle time for more responsive loading
 
     return (
       currentChunkX !== this.lastPlayerChunkX ||
       currentChunkY !== this.lastPlayerChunkY ||
-      (now - this.lastChunkCheck > throttleTime && this.pendingChunks.size === 0)
+      (now - this.lastChunkCheck > throttleTime && this.pendingChunks.size < MAX_PENDING_REQUESTS)
     );
   }
 

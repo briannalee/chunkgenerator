@@ -18,9 +18,18 @@ export class GameScene extends Phaser.Scene {
     super({ key: "GameScene" });
   }
 
-  preload() {
+  async preload() {
     this.gameLogic = new GameLogic();
+    // Wait for connection to establish
+    try {
+      console.log("Connecting...")
+      await this.gameLogic.connect();
+      console.log("Connected to server");
+    } catch (err) {
+      console.error("Connection failed:", err);
+    }
   }
+  
 
   async create() {
     this.player = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE, 0xff0000).setDepth(1);
@@ -36,15 +45,6 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.height,
       this.cameras.main.zoom
     );
-
-
-    // Wait for connection to establish
-    try {
-      await this.gameLogic.connect(); // Make sure this returns a Promise
-      console.log("Connected to server");
-    } catch (err) {
-      console.error("Connection failed:", err);
-    }
 
     // Set initial player position in game logic
     this.gameLogic.updatePlayerPosition(this.player.x, this.player.y);
@@ -88,11 +88,12 @@ export class GameScene extends Phaser.Scene {
 
     if (prevX !== this.player.x || prevY !== this.player.y) {
       this.gameLogic.updatePlayerPosition(this.player.x, this.player.y);
+    }
 
-      if (this.gameLogic.shouldUpdateChunks()) {
-        this.gameLogic.updateChunkTracking();
-        this.updateVisibleChunks();
-      }
+    // Always check for chunk updates when moving or periodically
+    if (this.gameLogic.shouldUpdateChunks()) {
+      this.gameLogic.updateChunkTracking();
+      this.updateVisibleChunks();
     }
 
     // Check if camera zoom changed
@@ -104,6 +105,9 @@ export class GameScene extends Phaser.Scene {
       );
       this.updateVisibleChunks();
     }
+
+    // Continuously check for pending chunks to load
+    this.gameLogic.checkPendingChunks();
 
     // Render any newly loaded chunks
     this.renderLoadedChunks();
@@ -122,7 +126,8 @@ export class GameScene extends Phaser.Scene {
     if (visibleChunksString !== lastVisibleChunksString) {
       this.gameLogic.lastVisibleChunks = visibleChunks;
       this.gameLogic.checkPendingChunks();
-      this.gameLogic.unloadDistantChunks();
+      const chunksToUnload = this.gameLogic.unloadDistantChunks();
+      this.gameLogic.removeChunks(chunksToUnload);
 
       // Clean up rendered chunks that were unloaded
       for (const chunkKey of this.renderedChunks) {
