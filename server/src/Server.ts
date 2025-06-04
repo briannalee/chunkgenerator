@@ -2,6 +2,9 @@ import express from "express";
 import { WebSocketServer } from "ws";
 import * as zlib from 'zlib';
 import { createServer } from "http";
+import cluster from 'cluster';
+import os from 'os';
+import Redis from 'ioredis';
 import dotenv from "dotenv";
 import { ChunkData } from "./models/Chunk";
 import { WorldGenerator } from "./world/WorldGenerator";
@@ -10,7 +13,52 @@ import path from "path";
 
 dotenv.config();
 
-const app = express();
+if (cluster.isPrimary) {
+  const numCPUs = os.cpus().length;
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork();
+  }
+  cluster.on('exit', (worker, code, signal) => {
+    console.log(`Worker ${worker.process.pid} died`);
+    cluster.fork();
+  });
+} else {
+  const redis = new Redis();
+  const sub = redis.duplicate();
+  sub.subscribe('player_update').then(() => {
+    console.log('Subscribed to player_update');
+  });
+  sub.on('message', (channel, message) => {
+    if (channel === 'player_update') {
+      const data = JSON.parse(message);
+      if (data.delete) {
+        delete players[data.id];
+      } else {
+        players[data.id] = { x: data.x, y: data.y };
+      }
+      broadcastPlayerUpdate();
+    }
+  });
+  // Load initial players
+  (async () => {
+    const playerIds = await redis.smembers('players');
+    if (playerIds.length > 0) {
+      const multi = redis.multi();
+      for (const id of playerIds) {
+        multi.get(`player:${id}`);
+      }
+      const results = await multi.exec();
+      if (results) {
+        results.forEach((result, index) => {
+          if (result && typeof result === 'string') {
+            const { x, y } = JSON.parse(result);
+            players[playerIds[index]] = { x, y };
+          }
+        });
+      }
+    }
+  })();
+  const app = express();
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
@@ -29,30 +77,30 @@ const port = process.env.PORT || 15432;
 // Worker pool for chunk generation
 const WORKER_POOL_SIZE = 16;
 const workers: Worker[] = [];
+const workerLoad: number[] = new Array(WORKER_POOL_SIZE).fill(0);
 const pendingRequests = new Map<string, { resolve: Function, reject: Function, ws: any }>();
 let requestCounter = 0;
 
-// Chunk cache to avoid regenerating the same chunks
-const chunkCache = new Map<string, ChunkData>();
-const CACHE_SIZE_LIMIT = 1000; // Limit cache size to prevent memory issues
+// Chunk cache using Redis
 
  // Initialize worker pool
 for (let i = 0; i < WORKER_POOL_SIZE; i++) {
   const worker = new Worker(path.join(__dirname, 'workers', 'ChunkWorker.js'));
   
-  worker.on('message', (data) => {
-    const { success, chunk, error, requestId } = data;
-    const request = pendingRequests.get(requestId);
-    
-    if (request) {
-      pendingRequests.delete(requestId);
-      if (success) {
-        request.resolve(chunk);
-      } else {
-        request.reject(new Error(error));
-      }
+worker.on('message', (data) => {
+  const { success, chunk, error, requestId } = data;
+  const request = pendingRequests.get(requestId);
+  
+  if (request) {
+    workerLoad[i]--;
+    pendingRequests.delete(requestId);
+    if (success) {
+      request.resolve(chunk);
+    } else {
+      request.reject(new Error(error));
     }
-  });
+  }
+});
   
   worker.on('error', (error) => {
     console.error('Worker error:', error);
@@ -87,7 +135,16 @@ dbWorker.on('error', (error) => {
 const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> => {
   return new Promise((resolve, reject) => {
     const requestId = `req_${++requestCounter}`;
-    const worker = workers[requestCounter % workers.length];
+    let selectedIndex = 0;
+    let minLoad = Infinity;
+    for (let j = 0; j < WORKER_POOL_SIZE; j++) {
+      if (workerLoad[j] < minLoad) {
+        minLoad = workerLoad[j];
+        selectedIndex = j;
+      }
+    }
+    const worker = workers[selectedIndex];
+    workerLoad[selectedIndex]++;
     
     pendingRequests.set(requestId, { resolve, reject, ws });
     worker.postMessage({ x, y, requestId });
@@ -134,36 +191,31 @@ const saveChunkAsync = (chunk: ChunkData): Promise<void> => {
 };
 
 // Cache management functions
-const getCachedChunk = (x: number, y: number): ChunkData | null => {
-  const key = `${x},${y}`;
-  return chunkCache.get(key) || null;
+const getCachedChunk = async (x: number, y: number): Promise<ChunkData | null> => {
+  const key = `cache:chunk:${x}:${y}`;
+  const data = await redis.get(key);
+  if (!data) return null;
+  return JSON.parse(data);
 };
 
-const setCachedChunk = (chunk: ChunkData): void => {
-  const key = `${chunk.x},${chunk.y}`;
-  
-  // Manage cache size
-  if (chunkCache.size >= CACHE_SIZE_LIMIT) {
-    // Remove oldest entries (simple FIFO)
-    const firstKey = chunkCache.keys().next().value;
-    if (firstKey) {
-      chunkCache.delete(firstKey);
-    }
-  }
-  
-  chunkCache.set(key, chunk);
+const setCachedChunk = async (chunk: ChunkData): Promise<void> => {
+  const key = `cache:chunk:${chunk.x}:${chunk.y}`;
+  await redis.set(key, JSON.stringify(chunk));
 };
 
 // Shared player state
-const players: Record<string, { x: number; y: number }> = {};
+let players: Record<string, { x: number; y: number }> = {};
 
 // WebSocket server setup
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer, perMessageDeflate: true });
 
-wss.on("connection", (ws) => {
+wss.on("connection", async (ws) => {
   const id = Math.random().toString(36).substr(2, 9);
   players[id] = { x: 0, y: 0 };
+  await redis.sadd('players', id);
+  await redis.set(`player:${id}`, JSON.stringify({ x: 0, y: 0 }));
+  await redis.publish('player_update', JSON.stringify({ id, x: 0, y: 0 }));
   ws.send(JSON.stringify({ type: "connected", id, players }));
 
   ws.on("message", async (data) => {
@@ -171,8 +223,11 @@ wss.on("connection", (ws) => {
     await handleMessage(ws, message, id);
   });
 
-  ws.on("close", () => {
+  ws.on("close", async () => {
     delete players[id];
+    await redis.srem('players', id);
+    await redis.del(`player:${id}`);
+    await redis.publish('player_update', JSON.stringify({ id, delete: true }));
     broadcastPlayerUpdate();
   });
 });
@@ -192,7 +247,7 @@ async function handleMessage(
 
     try {
       // Check memory cache first
-      let chunk = getCachedChunk(x, y);
+      let chunk = await getCachedChunk(x, y);
       
       if (!chunk) {
       // Check database
@@ -200,12 +255,12 @@ async function handleMessage(
       
       if (chunk) {
         // Cache the chunk from database
-        setCachedChunk(chunk);
+        await setCachedChunk(chunk);
       } else {
         // Generate chunk using worker thread
         const generatedChunk = await generateChunkAsync(x, y, ws);
         await saveChunkAsync(generatedChunk);
-        setCachedChunk(generatedChunk);
+        await setCachedChunk(generatedChunk);
         chunk = generatedChunk;
       }
       }
@@ -228,6 +283,8 @@ async function handleMessage(
   } else if (message.type === "move") {
     const { x, y } = message;
     players[playerId] = { x, y };
+    await redis.set(`player:${playerId}`, JSON.stringify({ x, y }));
+    await redis.publish('player_update', JSON.stringify({ id: playerId, x, y }));
     broadcastPlayerUpdate();
   } else if (message.type === "handshake") {
     // Handle handshake message
@@ -253,3 +310,4 @@ function broadcastPlayerUpdate() {
 httpServer.listen(port, () => {
   console.log(`HTTP/WebSocket server running on port ${port}`);
 });
+}
