@@ -3,7 +3,7 @@ import { WebSocketServer } from "ws";
 import * as zlib from 'zlib';
 import { createServer } from "http";
 import dotenv from "dotenv";
-import { findChunk, saveChunk, ChunkData } from "./models/Chunk";
+import { ChunkData } from "./models/Chunk";
 import { WorldGenerator } from "./world/WorldGenerator";
 import { Worker } from "worker_threads";
 import path from "path";
@@ -36,7 +36,7 @@ let requestCounter = 0;
 const chunkCache = new Map<string, ChunkData>();
 const CACHE_SIZE_LIMIT = 1000; // Limit cache size to prevent memory issues
 
-// Initialize worker pool
+ // Initialize worker pool
 for (let i = 0; i < WORKER_POOL_SIZE; i++) {
   const worker = new Worker(path.join(__dirname, 'workers', 'ChunkWorker.js'));
   
@@ -61,6 +61,28 @@ for (let i = 0; i < WORKER_POOL_SIZE; i++) {
   workers.push(worker);
 }
 
+// DB Worker
+const dbWorker = new Worker(path.join(__dirname, 'workers', 'DBWorker.js'));
+const dbPending = new Map<string, { resolve: Function, reject: Function }>();
+
+dbWorker.on('message', (data) => {
+  const { success, result, error, requestId } = data;
+  const request = dbPending.get(requestId);
+  
+  if (request) {
+    dbPending.delete(requestId);
+    if (success) {
+      request.resolve(result);
+    } else {
+      request.reject(new Error(error));
+    }
+  }
+});
+
+dbWorker.on('error', (error) => {
+  console.error('DB Worker error:', error);
+});
+
 // Generate chunk using worker thread
 const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> => {
   return new Promise((resolve, reject) => {
@@ -77,6 +99,37 @@ const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> =
         reject(new Error('Chunk generation timeout'));
       }
     }, 10000); // Reduced from 30s to 10s
+  });
+};
+
+// DB operations
+const findChunkAsync = (x: number, y: number): Promise<ChunkData | null> => {
+  return new Promise((resolve, reject) => {
+    const requestId = `db_${++requestCounter}`;
+    dbPending.set(requestId, { resolve, reject });
+    dbWorker.postMessage({ type: 'find', x, y, requestId });
+    
+    setTimeout(() => {
+      if (dbPending.has(requestId)) {
+        dbPending.delete(requestId);
+        reject(new Error('DB find timeout'));
+      }
+    }, 10000);
+  });
+};
+
+const saveChunkAsync = (chunk: ChunkData): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const requestId = `db_${++requestCounter}`;
+    dbPending.set(requestId, { resolve, reject });
+    dbWorker.postMessage({ type: 'save', chunk, requestId });
+    
+    setTimeout(() => {
+      if (dbPending.has(requestId)) {
+        dbPending.delete(requestId);
+        reject(new Error('DB save timeout'));
+      }
+    }, 10000);
   });
 };
 
@@ -142,19 +195,19 @@ async function handleMessage(
       let chunk = getCachedChunk(x, y);
       
       if (!chunk) {
-        // Check database
-        chunk = findChunk(x, y);
-        
-        if (chunk) {
-          // Cache the chunk from database
-          setCachedChunk(chunk);
-        } else {
-          // Generate chunk using worker thread
-          const generatedChunk = await generateChunkAsync(x, y, ws);
-          saveChunk(generatedChunk);
-          setCachedChunk(generatedChunk);
-          chunk = generatedChunk;
-        }
+      // Check database
+      chunk = await findChunkAsync(x, y);
+      
+      if (chunk) {
+        // Cache the chunk from database
+        setCachedChunk(chunk);
+      } else {
+        // Generate chunk using worker thread
+        const generatedChunk = await generateChunkAsync(x, y, ws);
+        await saveChunkAsync(generatedChunk);
+        setCachedChunk(generatedChunk);
+        chunk = generatedChunk;
+      }
       }
 
       const clientChunk = {
