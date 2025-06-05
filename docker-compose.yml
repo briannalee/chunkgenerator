@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: chunkgame-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: chunkgame-postgres
+    environment:
+      POSTGRES_DB: chunkgame
+      POSTGRES_USER: chunkuser
+      POSTGRES_PASSWORD: chunkpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+
+  # Optional: Redis Cluster for high availability
+  redis-cluster:
+    image: redis:7-alpine
+    container_name: chunkgame-redis-cluster
+    ports:
+      - "7000-7005:7000-7005"
+    volumes:
+      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    profiles: ["cluster"]
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  default:
+    name: chunkgame-network
