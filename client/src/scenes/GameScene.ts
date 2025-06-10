@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { CHUNK_SIZE, GameLogic, TILE_SIZE } from "../logic/GameLogic";
-import { ChunkData } from "../types/types";
+import { ChunkData, Tile, WaterType, Biome } from "../types/types";
 
 
 const DEBUG_MODE = true;
@@ -164,21 +164,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     tiles.forEach((tile) => {
-      const tileWorldX = tile.x * TILE_SIZE;
-      const tileWorldY = tile.y * TILE_SIZE;
-
-      let color = this.gameLogic.getTileColor(tile);
-      if (!tile.w && tile.stp > 0.5) {
-        color = this.gameLogic.darkenColor(color, 0.2); // Steeper slopes
-      }
-
-      graphics.fillStyle(color, 1);
-      graphics.fillRect(tileWorldX, tileWorldY, TILE_SIZE, TILE_SIZE);
-
-      if (tile.iC) {
-        graphics.lineStyle(1, 0x333333); // Cliff edges
-        graphics.strokeRect(tileWorldX, tileWorldY, TILE_SIZE, TILE_SIZE);
-      }
+    const tileWorldX = startX + tile.x * TILE_SIZE;
+    const tileWorldY = startY + tile.y * TILE_SIZE;
+    this.renderTile(graphics, tile, tileWorldX, tileWorldY, chunkX, chunkY);
     });
   }
 
@@ -223,5 +211,122 @@ export class GameScene extends Phaser.Scene {
       `Memory: ${stats.loadedChunks} chunks, ${stats.pendingChunks} pending, ` +
       `${this.chunkGraphics.size} graphics, ${stats.players} players`
     );
+  }
+
+  private getTileAt(globalX: number, globalY: number): Tile | null {
+    const chunkX = Math.floor(globalX / CHUNK_SIZE);
+    const chunkY = Math.floor(globalY / CHUNK_SIZE);
+    const chunkKey = `${chunkX},${chunkY}`;
+    if (!this.gameLogic.chunks[chunkKey]) return null;
+    const localX = ((globalX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const localY = ((globalY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const chunk = this.gameLogic.chunks[chunkKey];
+    const tile = chunk.tiles.find((t: Tile) => t.x === localX && t.y === localY);
+    return tile || null;
+  }
+
+  private getModifiedTileColor(tile: Tile): number {
+    let color = this.gameLogic.getTileColor(tile);
+    if (!tile.w && tile.stp > 0.5) {
+      color = this.gameLogic.darkenColor(color, 0.2);
+    }
+    return color;
+  }
+
+  private shouldBlend(tile1: Tile, tile2: Tile): boolean {
+    const isSpecial = (t: Tile) => (t.w && t.wT === WaterType.OCEAN) || t.iC || t.b === Biome.CLIFF;
+    if (isSpecial(tile1) || isSpecial(tile2)) return false;
+    return tile1.b !== tile2.b;
+  }
+
+  private renderTile(
+    graphics: Phaser.GameObjects.Graphics,
+    tile: Tile,
+    x: number,
+    y: number,
+    chunkX: number,
+    chunkY: number
+  ) {
+    const globalTileX = chunkX * CHUNK_SIZE + tile.x;
+    const globalTileY = chunkY * CHUNK_SIZE + tile.y;
+    const baseColor = this.getModifiedTileColor(tile);
+    // Get adjacent tiles
+    const leftTile = this.getTileAt(globalTileX - 1, globalTileY);
+    const rightTile = this.getTileAt(globalTileX + 1, globalTileY);
+    const topTile = this.getTileAt(globalTileX, globalTileY - 1);
+    const bottomTile = this.getTileAt(globalTileX, globalTileY + 1);
+    let leftColor = leftTile ? this.getModifiedTileColor(leftTile) : baseColor;
+    let rightColor = rightTile ? this.getModifiedTileColor(rightTile) : baseColor;
+    let topColor = topTile ? this.getModifiedTileColor(topTile) : baseColor;
+    let bottomColor = bottomTile ? this.getModifiedTileColor(bottomTile) : baseColor;
+    const needsHorizontalBlend =
+      (leftTile && this.shouldBlend(tile, leftTile)) ||
+      (rightTile && this.shouldBlend(tile, rightTile));
+    const needsVerticalBlend =
+      (topTile && this.shouldBlend(tile, topTile)) ||
+      (bottomTile && this.shouldBlend(tile, bottomTile));
+    if (needsHorizontalBlend) {
+      graphics.fillGradientStyle(leftColor, rightColor, leftColor, rightColor, 1);
+    } else if (needsVerticalBlend) {
+      graphics.fillGradientStyle(topColor, topColor, bottomColor, bottomColor, 1);
+    } else {
+      graphics.fillStyle(baseColor, 1);
+    }
+    graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    // Add variation
+    this.addTileVariation(graphics, tile, x, y, baseColor);
+    // Cliff edges
+    if (tile.iC) {
+      graphics.lineStyle(1, 0x333333);
+      graphics.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+    }
+  }
+
+  private addTileVariation(
+    graphics: Phaser.GameObjects.Graphics,
+    tile: Tile,
+    x: number,
+    y: number,
+    baseColor: number
+  ) {
+    if (tile.w) return;
+    const seed = Math.abs(tile.x * 12345 + tile.y * 67890);
+    let variationColor: number = 0;
+    let numElements: number = 0;
+    let sizeBase: number = 8;
+    switch (tile.b) {
+      case Biome.GRASSLAND:
+      case Biome.SAVANNA:
+        variationColor = this.gameLogic.darkenColor(0x00FF00, 0.2);
+        numElements = 5;
+        break;
+      case Biome.FOREST:
+      case Biome.DENSE_FOREST:
+      case Biome.JUNGLE:
+        variationColor = this.gameLogic.darkenColor(0x008000, 0.1);
+        numElements = 4;
+        break;
+      case Biome.DESERT:
+        variationColor = this.gameLogic.darkenColor(0xD2B48C, 0.2);
+        numElements = 3;
+        break;
+      case Biome.MOUNTAIN:
+      case Biome.CLIFF:
+        variationColor = 0x808080;
+        numElements = 4;
+        sizeBase = 12;
+        break;
+      default:
+        return;
+    }
+    for (let i = 0; i < numElements; i++) {
+      const r1 = (seed + i * 10007) % 100;
+      const rx = (r1 / 100) * TILE_SIZE;
+      const r2 = (seed + i * 20011) % 100;
+      const ry = (r2 / 100) * TILE_SIZE;
+      const size = sizeBase + ((seed + i) % 8);
+      graphics.fillStyle(variationColor, 1);
+      graphics.fillRect(x + rx, y + ry, size, size);
+    }
   }
 }
