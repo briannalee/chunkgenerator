@@ -1,7 +1,6 @@
 import cluster from 'cluster';
 import os from 'os';
 import Redis from 'ioredis';
-import { ChunkData } from './models/Chunk';
 
 const numCPUs = os.cpus().length;
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
