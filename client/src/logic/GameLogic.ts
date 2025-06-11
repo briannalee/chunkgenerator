@@ -27,7 +27,7 @@ export interface MemoryStats {
 }
 
 export const CHUNK_SIZE: number = 10;
-export const TILE_SIZE: number = 8;
+export const TILE_SIZE: number = 64;
 export const CHUNK_BUFFER: number = 2; // Increased buffer for smoother experience
 export const MAX_PENDING_REQUESTS: number = 12; // Increased concurrent requests
 export const FRAME_HISTORY_SIZE: number = 300;
