@@ -8,6 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest watch",
     "test:terrain": "vitest run test/terrainData.test.ts",
+    "test:river": "vitest run test/riverData.test.ts",
     "test:coverage": "vitest run --coverage"
   },
   "keywords": [],

@@ -27,7 +27,7 @@ app.use((req, res, next) => {
 
 const port = process.env.PORT || 15432;
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://localhost:5432/chunkgame';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://chunkuser:chunkpass@localhost:5432/chunkgame';
 
 // Redis clients
 const redis = new Redis(REDIS_URL);
