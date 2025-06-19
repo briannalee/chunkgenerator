@@ -55,7 +55,7 @@ fi
 
 # Start Redis and PostgreSQL
 echo "🐳 Starting Redis and PostgreSQL containers..."
-docker-compose up -d postgres redis
+docker-compose up -d postgres #redis
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to be ready..."
