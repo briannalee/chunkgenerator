@@ -103,7 +103,6 @@ export interface BaseTile {
   p: number; // precipitation (0-1)
   b: Biome;
   stp: number; // steepness
-  iC: boolean; // is cliff
   c: ColorIndex;
 }
 
@@ -117,6 +116,7 @@ export interface LandTile extends BaseTile {
   v: number; // vegetation amount (0-1)
   vT: VegetationType;
   sT: SoilType;
+  iC: boolean; // is cliff
 }
 
 export type Tile = WaterTile | LandTile;

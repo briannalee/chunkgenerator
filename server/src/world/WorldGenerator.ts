@@ -111,8 +111,8 @@ export class WorldGenerator {
 
   private generateTerrainPointFast(x: number, y: number): TerrainPoint {
     // Use cached values for faster generation
-    const height = this.heightCache.get(`${x},${y}`)!;
-    const h1 = this.heightCache.get(`${x + 1},${y}`)!;
+    const height = this.getCachedHeight(x, y);
+    const h1 = this.getCachedHeight(x+1, y);
     const h2 = this.heightCache.get(`${x},${y + 1}`)!;
     const temperature = this.temperatureCache.get(`${x},${y}`)!;
     const precipitation = this.precipitationCache.get(`${x},${y}`)!;
@@ -164,38 +164,6 @@ export class WorldGenerator {
         this.precipitationCache.delete(key);
       }
     }
-  }
-
-  private generateTerrainPoint(x: number, y: number): TerrainPoint {
-    // Get cached height values
-    const height = this.getCachedHeight(x, y);
-    const h1 = this.getCachedHeight(x + 1, y);
-    const h2 = this.getCachedHeight(x, y + 1);
-
-    const normalizedHeight = (height + 1) * 0.5;
-    const steepness = Math.min(1, (Math.abs(height - h1) + Math.abs(height - h2)) * 5);
-    const isWater = normalizedHeight < this.seaLevel;
-
-    // Get other properties (temperature/precipitation not cached as they're used once)
-    const temperature = this.noiseGen.generateTemperature(x, y, normalizedHeight);
-    const precipitation = this.noiseGen.generatePrecipitation(x, y, normalizedHeight, temperature);
-
-    const point: TerrainPoint = {
-      x,
-      y,
-      h: height,
-      nH: normalizedHeight,
-      w: isWater,
-      t: temperature,
-      p: precipitation,
-      stp: steepness,
-      b: Biome.GRASSLAND,
-      c: ColorIndex.GRASSLAND,
-      _possibleBeach: false
-    };
-
-    this.assignTerrainProperties(point);
-    return point;
   }
 
   private assignTerrainProperties(point: TerrainPoint): void {

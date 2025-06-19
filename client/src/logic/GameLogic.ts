@@ -1,4 +1,4 @@
-import { Tile, WaterType, Biome, ChunkData, WaterTile, LandTile, VegetationType, ColorMap } from "../types/types";
+import { Tile, WaterType, Biome, ChunkData, WaterTile, LandTile, VegetationType, ColorMap, ColorIndex, SoilType } from "../types/types";
 import { INetworkAdapter } from "../network/INetworkAdapter";
 import { NetworkFactory } from "../network/NetworkFactory";
 
@@ -89,23 +89,36 @@ export class GameLogic {
       let { x, y, tiles } = message.chunk;
       const chunkKey = `${x},${y}`;
       if (tiles && tiles.length > 0 && Array.isArray(tiles[0])) {
-        tiles = tiles.map((t: any) => ({
-          x: t[0],
-          y: t[1],
-          h: t[2],
-          nH: t[3],
-          w: t[4] === 1,
-          t: t[5],
-          p: t[6],
-          stp: t[7],
-          b: t[8],
-          c: t[9],
-          iC: t[10] === 1,
-          wT: t[11],
-          v: t[12],
-          vT: t[13],
-          sT: t[14],
-        }));
+        tiles = tiles.map((t: any) => {
+          const isWater = t[4] === 1;
+          const baseProperties = {
+            x: t[0],
+            y: t[1],
+            h: t[2],
+            nH: t[3],
+            t: t[5],
+            p: t[6],
+            stp: t[7],
+            b: t[8] as Biome,
+            c: t[9] as ColorIndex,
+            iC: t[10] === 1,
+            w: isWater
+          };
+
+          if (isWater) {
+            return {
+              ...baseProperties,
+              wT: t[11] as WaterType
+            } as WaterTile;
+          } else {
+            return {
+              ...baseProperties,
+              v: t[12],
+              vT: t[13] as VegetationType,
+              sT: t[14] as SoilType
+            } as LandTile;
+          }
+        });
       }
       this.processChunkData({ x, y, tiles });
       this.loadedChunks.add(chunkKey);
@@ -188,10 +201,10 @@ export class GameLogic {
 
     const visibleChunks = this.getVisibleChunkKeys();
     const predictiveChunks = this.getPredictiveChunkKeys();
-    
+
     // Combine visible and predictive chunks, prioritizing visible chunks
     const allChunks = [...new Set([...visibleChunks, ...predictiveChunks])];
-    
+
     const chunksToRequest = allChunks.filter(
       chunkKey => !this.loadedChunks.has(chunkKey) && !this.pendingChunks.has(chunkKey)
     );
@@ -226,7 +239,7 @@ export class GameLogic {
       // Prioritize visible chunks over predictive chunks
       const aIsVisible = visibleChunks.includes(a);
       const bIsVisible = visibleChunks.includes(b);
-      
+
       if (aIsVisible && !bIsVisible) return -1;
       if (!aIsVisible && bIsVisible) return 1;
 
@@ -298,7 +311,7 @@ export class GameLogic {
     }
   }
 
-    private getWaterColor(tile: WaterTile): number {
+  private getWaterColor(tile: WaterTile): number {
     // Depth-based water coloring
     const depthFactor = 1 - tile.nH; // Deeper water is darker
     const baseColors = {
@@ -312,32 +325,11 @@ export class GameLogic {
     return this.darkenColor(baseColor, depthFactor * 0.7);
   }
 
-    private getLandColor(tile: LandTile): number {
+  private getLandColor(tile: LandTile): number {
     // Elevation-based tinting
     const elevationTint = this.getElevationTint(tile.nH);
-    
-    // Base colors for each biome
-    const biomeColors = {
-      [Biome.OCEAN_DEEP]: 0x0f4d8a,
-      [Biome.OCEAN_SHALLOW]: 0x08394d,
-      [Biome.BEACH]: 0xF5DEB3,
-      [Biome.GRASSLAND]: 0x7CFC00,
-      [Biome.FOREST]: this.getForestColor(tile),
-      [Biome.DENSE_FOREST]: this.getForestColor(tile),
-      [Biome.SWAMP]: 0x8FBC8F,
-      [Biome.MARSH]: 0x98FB98,
-      [Biome.CLIFF]: 0xA9A9A9,
-      [Biome.RIVER]: 0x1E90FF,
-      [Biome.LAKE]: 0x5F9EA0,
-      [Biome.JUNGLE]: 0x006400,
-      [Biome.DESERT]: 0xF4A460,
-      [Biome.SAVANNA]: 0xD2B48C,
-      [Biome.TUNDRA]: 0xE6E6FA,
-      [Biome.MOUNTAIN]: this.getMountainColor(tile),
-      [Biome.SNOW]: 0xFFFFFF,
-      [Biome.MOUNTAIN_SNOW]: 0xe8e8e8
-    };
-    
+
+
     // Get base color for the tile's biome
     let color = ColorMap[tile.c] || 0x000000; // Default to black if unknown biome
     // Update dynamic colors for forests and mountains
@@ -346,12 +338,12 @@ export class GameLogic {
     } else if (tile.b === Biome.MOUNTAIN) {
       color = this.getMountainColor(tile);
     }
-    
+
     // Mix with elevation tint
     return this.mixColors(color, elevationTint, 0.7);
   }
 
-   private getForestColor(tile: LandTile): number {
+  private getForestColor(tile: LandTile): number {
     // Vegetation density affects forest color
     const density = tile.v;
     const baseColors: Record<VegetationType, number> = {
@@ -387,15 +379,15 @@ export class GameLogic {
     const r1 = (color1 >> 16) & 0xFF;
     const g1 = (color1 >> 8) & 0xFF;
     const b1 = color1 & 0xFF;
-    
+
     const r2 = (color2 >> 16) & 0xFF;
     const g2 = (color2 >> 8) & 0xFF;
     const b2 = color2 & 0xFF;
-    
+
     const r = Math.round(r1 * ratio + r2 * (1 - ratio));
     const g = Math.round(g1 * ratio + g2 * (1 - ratio));
     const b = Math.round(b1 * ratio + b2 * (1 - ratio));
-    
+
     return (r << 16) + (g << 8) + b;
   }
 
@@ -430,7 +422,7 @@ export class GameLogic {
   public updatePlayerPosition(x: number, y: number): void {
     // Update movement tracking
     this.updateMovementTracking(x, y);
-    
+
     this.playerPosition = { x, y };
     this.networkAdapter.send({ type: "move", x, y });
   }
@@ -475,7 +467,7 @@ export class GameLogic {
   public getPredictiveChunkKeys(): string[] {
     const predictedPos = this.getPredictedPosition();
     const chunkSize = CHUNK_SIZE * TILE_SIZE;
-    
+
     // Calculate visible area around predicted position
     const halfWidth = (this.viewport.width / this.viewport.zoom) / 2;
     const halfHeight = (this.viewport.height / this.viewport.zoom) / 2;

@@ -7,7 +7,7 @@ import { INetworkAdapter } from '../src/network/INetworkAdapter'
 const TEST_TIMEOUT = 5000; // 5 seconds timeout per test
 
 describe('WebSocket Network Adapter Tests', () => {
-  let adapter: INetworkAdapter;
+    let adapter: INetworkAdapter;
 
   beforeAll(() => {
     adapter = NetworkFactory.createAdapter();
@@ -23,7 +23,7 @@ describe('WebSocket Network Adapter Tests', () => {
     expect(adapter.readyState.toLowerCase()).toBe('open');
   }, TEST_TIMEOUT);
 
-  it('should receive "handshook" message after handshake', async () => {
+  it('should receive "handshake" message after handshake', async () => {
     // connect
     const response = await new Promise((resolve) => {
       adapter.onMessage(data => resolve(data));
@@ -36,15 +36,9 @@ describe('WebSocket Network Adapter Tests', () => {
     // send handshake message
     adapter.send({ type: 'handshake' });
     const handshakeResponse = await new Promise((resolve) => {
-      const handler = (data: any) => {
-        if (data.type === 'handshook') {
-          adapter.onMessage(handler); // Remove this specific handler
-          resolve(data);
-        }
-        // Other messages are ignored
-      };
-      adapter.onMessage(handler);
-    });
+      adapter.onMessage(data => resolve(data));
+    }
+    );
     expect(handshakeResponse).toMatchObject({
       type: 'handshook',
     });

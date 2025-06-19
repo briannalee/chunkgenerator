@@ -193,7 +193,7 @@ export class GameScene extends Phaser.Scene {
     this.addBiomeDetails(graphics, tile, tileWorldX, tileWorldY);
 
     // Render cliff edges with hard borders
-    if (tile.iC) {
+    if (!tile.w && (tile as any).iC) {
       graphics.lineStyle(2, 0x333333, 1);
       graphics.strokeRect(tileWorldX, tileWorldY, TILE_SIZE, TILE_SIZE);
     }
