@@ -1,3 +1,4 @@
+import { PriorityQueue } from '../pathfinding/PriorityQueue';
 import { NoiseGenerator } from './NoiseGenerator';
 import { TerrainPoint, Biome, WaterType, VegetationType, SoilType, ColorIndex } from './TerrainTypes';
 
@@ -9,7 +10,7 @@ export class WorldGenerator {
   private heightCache: Map<string, number> = new Map();
   private temperatureCache: Map<string, number> = new Map();
   private precipitationCache: Map<string, number> = new Map();
-  
+
   // Cache size limits to prevent memory bloat
   private readonly MAX_CACHE_SIZE = 10000;
 
@@ -19,20 +20,20 @@ export class WorldGenerator {
 
   generateChunk(chunkX: number, chunkY: number, chunkSize: number = 10): TerrainPoint[][] {
     const terrain: TerrainPoint[][] = [];
-    
+
     // Pre-generate all coordinates for batch processing
-    const coordinates: Array<{x: number, y: number, worldX: number, worldY: number}> = [];
+    const coordinates: Array<{ x: number, y: number, worldX: number, worldY: number }> = [];
     for (let y = 0; y < chunkSize; y++) {
       for (let x = 0; x < chunkSize; x++) {
         const worldX = chunkX * chunkSize + x;
         const worldY = chunkY * chunkSize + y;
-        coordinates.push({x, y, worldX, worldY});
+        coordinates.push({ x, y, worldX, worldY });
       }
     }
 
     // Batch generate heights with extended area for neighbor calculations
     this.batchGenerateHeights(coordinates, chunkSize);
-    
+
     // Batch generate temperature and precipitation
     this.batchGenerateClimate(coordinates);
 
@@ -66,17 +67,17 @@ export class WorldGenerator {
     return cached;
   }
 
-  private batchGenerateHeights(coordinates: Array<{x: number, y: number, worldX: number, worldY: number}>, chunkSize: number): void {
+  private batchGenerateHeights(coordinates: Array<{ x: number, y: number, worldX: number, worldY: number }>, chunkSize: number): void {
     // Generate heights for chunk area plus neighbors for steepness calculation
     const extendedCoords = new Set<string>();
-    
+
     // Add main coordinates and their neighbors
     for (const coord of coordinates) {
       extendedCoords.add(`${coord.worldX},${coord.worldY}`);
       extendedCoords.add(`${coord.worldX + 1},${coord.worldY}`);
       extendedCoords.add(`${coord.worldX},${coord.worldY + 1}`);
     }
-    
+
     // Batch generate all heights
     for (const coordStr of extendedCoords) {
       const [x, y] = coordStr.split(',').map(Number);
@@ -87,18 +88,18 @@ export class WorldGenerator {
     }
   }
 
-  private batchGenerateClimate(coordinates: Array<{x: number, y: number, worldX: number, worldY: number}>): void {
+  private batchGenerateClimate(coordinates: Array<{ x: number, y: number, worldX: number, worldY: number }>): void {
     // Batch generate temperature and precipitation for all coordinates
     for (const coord of coordinates) {
       const key = `${coord.worldX},${coord.worldY}`;
-      
+
       if (!this.temperatureCache.has(key)) {
         const height = this.heightCache.get(key)!;
         const normalizedHeight = (height + 1) * 0.5;
         const temperature = this.noiseGen.generateTemperature(coord.worldX, coord.worldY, normalizedHeight);
         this.temperatureCache.set(key, temperature);
       }
-      
+
       if (!this.precipitationCache.has(key)) {
         const height = this.heightCache.get(key)!;
         const normalizedHeight = (height + 1) * 0.5;
@@ -112,7 +113,7 @@ export class WorldGenerator {
   private generateTerrainPointFast(x: number, y: number): TerrainPoint {
     // Use cached values for faster generation
     const height = this.getCachedHeight(x, y);
-    const h1 = this.getCachedHeight(x+1, y);
+    const h1 = this.getCachedHeight(x + 1, y);
     const h2 = this.heightCache.get(`${x},${y + 1}`)!;
     const temperature = this.temperatureCache.get(`${x},${y}`)!;
     const precipitation = this.precipitationCache.get(`${x},${y}`)!;
@@ -148,7 +149,7 @@ export class WorldGenerator {
         this.heightCache.delete(key);
       }
     }
-    
+
     if (this.temperatureCache.size > this.MAX_CACHE_SIZE) {
       const entries = Array.from(this.temperatureCache.entries());
       const toDelete = entries.slice(0, Math.floor(this.MAX_CACHE_SIZE * 0.3));
@@ -156,7 +157,7 @@ export class WorldGenerator {
         this.temperatureCache.delete(key);
       }
     }
-    
+
     if (this.precipitationCache.size > this.MAX_CACHE_SIZE) {
       const entries = Array.from(this.precipitationCache.entries());
       const toDelete = entries.slice(0, Math.floor(this.MAX_CACHE_SIZE * 0.3));
@@ -167,6 +168,11 @@ export class WorldGenerator {
   }
 
   private assignTerrainProperties(point: TerrainPoint): void {
+    if (point.wT === WaterType.LAKE) {
+      point.b = Biome.LAKE;
+      point.c = ColorIndex.LAKE;
+      return;
+    }
     // Handle water tiles
     if (point.w) {
       if (point.nH < this.seaLevel - 0.15) {
@@ -203,7 +209,7 @@ export class WorldGenerator {
 
     // Handle mountains
     if (point.nH > 0.75) {
-      if (point.t < 0.2) {
+      if (point.t < 0.35) {
         point.b = Biome.MOUNTAIN_SNOW;
         point.c = ColorIndex.MOUNTAIN_SNOW;
         point.sT = SoilType.SNOW;
@@ -338,49 +344,607 @@ export class WorldGenerator {
       }
     }
 
-    // Simple river generation (very basic)
-    const shouldHaveRiver = Math.random() < 0.3; // 30% chance for a chunk to have a river
+    // River generation
+    this.generateRivers(terrain, chunkSize);
+  }
 
-    if (shouldHaveRiver) {
-      // Oceans shouldn't have rivers
-      const hasOcean = terrain.some(row => row.some(point => point.w && point.wT === WaterType.OCEAN));
-      if (hasOcean) return; // Skip river generation if there's an ocean
-      const riverStartX = Math.floor(Math.random() * chunkSize);
-      let x = riverStartX;
+  private generateRivers(terrain: TerrainPoint[][], chunkSize: number): void {
+    const hasOcean = terrain.some(row => row.some(p => p.w && p.wT === WaterType.OCEAN));
 
-      for (let y = 0; y < chunkSize; y++) {
-        // Make a winding river
-        x = Math.max(0, Math.min(chunkSize - 1, x + Math.floor(Math.random() * 3) - 1));
+    // Process incoming rivers first
+    this.processIncomingRivers(terrain, chunkSize, hasOcean);
 
-        const point = terrain[y][x];
-        point.w = true;
-        point.wT = WaterType.RIVER;
-        point.b = Biome.RIVER;
-        point.c = ColorIndex.RIVER;
-        // Remove non-water properties
-        delete point.sT;
-        delete point.v;
-        delete point.vT;
+    // Find and process mountain sources
+    this.processMountainSources(terrain, chunkSize, hasOcean);
 
-        // Riverbanks
-        if (x > 0) {
-          const leftBank = terrain[y][x - 1];
-          if (!leftBank.w) {
-            leftBank.sT = SoilType.DIRT;
-            leftBank.v = 0.6;
-            leftBank.vT = VegetationType.GRASS;
-          }
-        }
+    // Find and process lake sources
+    this.processLakeSources(terrain, chunkSize, hasOcean);
 
-        if (x < chunkSize - 1) {
-          const rightBank = terrain[y][x + 1];
-          if (!rightBank.w) {
-            rightBank.sT = SoilType.DIRT;
-            rightBank.v = 0.6;
-            rightBank.vT = VegetationType.GRASS;
+  }
+
+  private processIncomingRivers(terrain: TerrainPoint[][], chunkSize: number, hasOcean: boolean): void {
+    const incomingRivers: { x: number, y: number }[] = [];
+
+    // Check top edge (y = 0)
+    for (let x = 0; x < chunkSize; x++) {
+      if (terrain[0][x].w && terrain[0][x].wT === WaterType.RIVER) {
+        incomingRivers.push({ x, y: 0 });
+      }
+    }
+
+    // Check left edge (x = 0)
+    for (let y = 0; y < chunkSize; y++) {
+      if (terrain[y][0].w && terrain[y][0].wT === WaterType.RIVER) {
+        incomingRivers.push({ x: 0, y });
+      }
+    }
+
+    // Continue incoming rivers
+    for (const river of incomingRivers) {
+      this.generateRiverPathAStar(terrain, chunkSize, river.x, river.y, hasOcean);
+    }
+  }
+
+  private processMountainSources(terrain: TerrainPoint[][], chunkSize: number, hasOcean: boolean): void {
+    let mountainSourceFound = false;
+
+    for (let y = 0; y < chunkSize && !mountainSourceFound; y++) {
+      for (let x = 0; x < chunkSize && !mountainSourceFound; x++) {
+        if (terrain[y][x].b === Biome.MOUNTAIN_SNOW) {
+          // Find lowest adjacent non-mountain tile
+          const startPoint = this.findRiverStartFromMountain(terrain, x, y, chunkSize);
+          if (startPoint) {
+            mountainSourceFound = true;
+            this.generateRiverPathAStar(terrain, chunkSize, startPoint.x, startPoint.y, hasOcean);
           }
         }
       }
     }
+  }
+
+  private findRiverStartFromMountain(terrain: TerrainPoint[][], x: number, y: number, chunkSize: number): { x: number, y: number } | null {
+    const directions = [
+      [0, 1], [1, 0], [0, -1], [-1, 0],  // Cardinal directions
+      [1, 1], [1, -1], [-1, 1], [-1, -1]  // Diagonal directions
+    ];
+
+    let bestStart: { x: number, y: number, height: number } | null = null;
+
+    for (const [dx, dy] of directions) {
+      const nx = x + dx;
+      const ny = y + dy;
+
+      if (nx >= 0 && nx < chunkSize && ny >= 0 && ny < chunkSize) {
+        const tile = terrain[ny][nx];
+        if (tile.b !== Biome.MOUNTAIN_SNOW && !tile.w) {
+          if (!bestStart || tile.nH < bestStart.height) {
+            bestStart = { x: nx, y: ny, height: tile.nH };
+          }
+        }
+      }
+    }
+
+    return bestStart;
+  }
+  private processLakeSources(terrain: TerrainPoint[][], chunkSize: number, hasOcean: boolean): void {
+    const visited = new Set<string>();
+
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const key = `${x},${y}`;
+        if (visited.has(key)) continue;
+
+        const tile = terrain[y][x];
+        if (tile.b === Biome.LAKE && (!tile.w || tile.wT !== WaterType.RIVER)) {
+          // Find all connected lake tiles
+          const lakeTiles = this.floodFillLake(terrain, x, y, chunkSize);
+
+          // Mark all as visited
+          lakeTiles.forEach(t => visited.add(`${t.x},${t.y}`));
+
+          // Only process lakes above a certain size
+          if (lakeTiles.length >= 3) {
+            this.processLake(terrain, lakeTiles, chunkSize, hasOcean);
+          }
+        }
+      }
+    }
+  }
+
+  private floodFillLake(terrain: TerrainPoint[][], startX: number, startY: number, chunkSize: number): { x: number, y: number }[] {
+    const tiles: { x: number, y: number }[] = [];
+    const queue = [{ x: startX, y: startY }];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const key = `${current.x},${current.y}`;
+
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      const tile = terrain[current.y][current.x];
+      if (tile.b === Biome.LAKE && (!tile.w || tile.wT !== WaterType.RIVER)) {
+        tiles.push(current);
+
+        // Check 4-directional neighbors
+        const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+        for (const [dx, dy] of directions) {
+          const nx = current.x + dx;
+          const ny = current.y + dy;
+
+          if (nx >= 0 && nx < chunkSize && ny >= 0 && ny < chunkSize) {
+            queue.push({ x: nx, y: ny });
+          }
+        }
+      }
+    }
+
+    return tiles;
+  }
+  private processLake(terrain: TerrainPoint[][], lakeTiles: { x: number, y: number }[], chunkSize: number, hasOcean: boolean): void {
+    // Find potential outlets (lake edge tiles adjacent to lower land)
+    const outlets: { x: number, y: number, height: number }[] = [];
+
+    for (const tile of lakeTiles) {
+
+      const isEdge = this.isLakeEdgeTile(terrain, tile.x, tile.y, chunkSize);
+      if (isEdge) {
+        const lowestNeighbor = this.getLowestAdjacentLand(terrain, tile.x, tile.y, chunkSize);
+        if (lowestNeighbor) {
+          outlets.push({
+            x: tile.x,
+            y: tile.y,
+            height: lowestNeighbor.height
+          });
+        }
+      }
+    }
+
+    // Sort outlets by height (lowest first)
+    outlets.sort((a, b) => a.height - b.height);
+
+    // Process the best outlet (if any)
+    if (outlets.length > 0) {
+      const bestOutlet = outlets[0];
+      const riverStart = this.getLowestAdjacentLand(terrain, bestOutlet.x, bestOutlet.y, chunkSize);
+
+      if (riverStart) {
+        // First convert the lake edge tile to river
+        this.setAsRiver(terrain[bestOutlet.y][bestOutlet.x]);
+
+        // Then generate river from the land tile
+        const path = this.findDownhillPath(terrain, riverStart.x, riverStart.y, chunkSize);
+
+        // Only create the river if it has a valid path
+        if (path.length > 1) {
+          this.createRiver(terrain, path);
+        } else {
+          // If no path found, revert the outlet
+          this.setAsLake(terrain[bestOutlet.y][bestOutlet.x]);
+        }
+      }
+    }
+  }
+
+  private findDownhillPath(terrain: TerrainPoint[][], startX: number, startY: number, chunkSize: number): { x: number, y: number }[] {
+    const path: { x: number, y: number }[] = [];
+    let currentX = startX;
+    let currentY = startY;
+    const visited = new Set<string>();
+
+    while (true) {
+      const key = `${currentX},${currentY}`;
+      if (visited.has(key)) break;
+      visited.add(key);
+
+      path.push({ x: currentX, y: currentY });
+
+      const currentTile = terrain[currentY][currentX];
+
+      // Stop if we reach water (but not lake)
+      if (currentTile.w && currentTile.wT !== WaterType.LAKE) {
+        break;
+      }
+
+      // Find the lowest neighbor
+      const lowest = this.getLowestAdjacent(terrain, currentX, currentY, chunkSize);
+
+      // Stop if no lower neighbor or we're at the edge
+      if (!lowest || lowest.height >= currentTile.nH) {
+        break;
+      }
+
+      currentX = lowest.x;
+      currentY = lowest.y;
+    }
+
+
+    return path;
+  }
+
+  private getLowestAdjacent(terrain: TerrainPoint[][], x: number, y: number, chunkSize: number): { x: number, y: number, height: number } | null {
+    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    let lowest: { x: number, y: number, height: number } | null = null;
+
+    for (const [dx, dy] of directions) {
+      const nx = x + dx;
+      const ny = y + dy;
+
+      if (nx >= 0 && nx < chunkSize && ny >= 0 && ny < chunkSize) {
+        const neighbor = terrain[ny][nx];
+        const height = neighbor.nH;
+
+        // Skip if it's higher than current
+        if (height >= terrain[y][x].nH) continue;
+
+        if (!lowest || height < lowest.height) {
+          lowest = { x: nx, y: ny, height };
+        }
+      }
+    }
+
+    return lowest;
+  }
+
+  private getLowestAdjacentLand(terrain: TerrainPoint[][], x: number, y: number, chunkSize: number): { x: number, y: number, height: number } | null {
+    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+    let lowest: { x: number, y: number, height: number } | null = null;
+
+    for (const [dx, dy] of directions) {
+      const nx = x + dx;
+      const ny = y + dy;
+
+      if (nx >= 0 && nx < chunkSize && ny >= 0 && ny < chunkSize) {
+        const neighbor = terrain[ny][nx];
+
+        // Skip water tiles (unless they're ocean)
+        if (neighbor.w && neighbor.wT !== WaterType.OCEAN) continue;
+
+        const height = neighbor.nH;
+        if (!lowest || height < lowest.height) {
+          lowest = { x: nx, y: ny, height };
+        }
+      }
+    }
+
+    return lowest;
+  }
+
+
+  private findLakeOutlet(terrain: TerrainPoint[][], lake: { tiles: { x: number, y: number }[] }, chunkSize: number): { x: number, y: number } | null {
+    // First, find the lowest edge tile of the lake
+    let lowestEdgeTile: { x: number, y: number, height: number } | null = null;
+
+    for (const tile of lake.tiles) {
+      // Check if this is an edge tile (has non-lake neighbor)
+      const isEdge = this.isLakeEdgeTile(terrain, tile.x, tile.y, chunkSize);
+      if (isEdge) {
+        const height = terrain[tile.y][tile.x].nH;
+        if (!lowestEdgeTile || height < lowestEdgeTile.height) {
+          lowestEdgeTile = { x: tile.x, y: tile.y, height };
+        }
+      }
+    }
+
+    if (!lowestEdgeTile) return null;
+
+    // Now find the lowest adjacent land tile to be the outlet
+    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+    let bestOutlet: { x: number, y: number, height: number } | null = null;
+
+    for (const [dx, dy] of directions) {
+      const nx = lowestEdgeTile.x + dx;
+      const ny = lowestEdgeTile.y + dy;
+
+      if (nx >= 0 && nx < chunkSize && ny >= 0 && ny < chunkSize) {
+        const neighbor = terrain[ny][nx];
+        if (!neighbor.w || neighbor.wT !== WaterType.LAKE) {
+          if (!bestOutlet || neighbor.nH < bestOutlet.height) {
+            bestOutlet = { x: nx, y: ny, height: neighbor.nH };
+          }
+        }
+      }
+    }
+
+    return bestOutlet;
+  }
+
+  private isLakeEdgeTile(terrain: TerrainPoint[][], x: number, y: number, chunkSize: number): boolean {
+    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+
+    for (const [dx, dy] of directions) {
+      const nx = x + dx;
+      const ny = y + dy;
+
+      if (nx >= 0 && nx < chunkSize && ny >= 0 && ny < chunkSize) {
+        const neighbor = terrain[ny][nx];
+        if (!neighbor.w || neighbor.wT !== WaterType.LAKE) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+  private generateRiverPathAStar(terrain: TerrainPoint[][], chunkSize: number, startX: number, startY: number, hasOcean: boolean): void {
+    const startTile = terrain[startY][startX];
+
+    // Don't start in ocean or existing rivers
+    if (startTile.w && (startTile.wT === WaterType.OCEAN || startTile.wT === WaterType.RIVER)) {
+      return;
+    }
+
+    // First try normal path to ocean
+    const normalPath = this.findPathToOcean(terrain, chunkSize, startX, startY, hasOcean);
+    if (normalPath.length > 0) {
+      this.createRiver(terrain, normalPath);
+      return;
+    }
+
+    // If no path found, handle depression
+    this.handleDepression(terrain, chunkSize, startX, startY, hasOcean);
+  }
+
+  private findPathToOcean(terrain: TerrainPoint[][], chunkSize: number, startX: number, startY: number, hasOcean: boolean): { x: number, y: number }[] {
+    const openSet = new PriorityQueue<{ x: number, y: number, cost: number }>(
+      (a, b) => a.cost < b.cost
+    );
+    const cameFrom = new Map<string, { x: number, y: number }>();
+    const gScore = new Map<string, number>();
+    const closedSet = new Set<string>();
+
+    // Initialize
+    const startKey = `${startX},${startY}`;
+    gScore.set(startKey, 0);
+    openSet.enqueue({
+      x: startX,
+      y: startY,
+      cost: this.heuristic(startX, startY, terrain, chunkSize, hasOcean)
+    });
+
+    while (!openSet.isEmpty()) {
+      const current = openSet.dequeue();
+      const currentKey = `${current.x},${current.y}`;
+      const currentTile = terrain[current.y][current.x];
+
+      // Check if reached ocean
+      if (currentTile.w && currentTile.wT === WaterType.OCEAN) {
+        return this.reconstructPath(cameFrom, current);
+      }
+
+      closedSet.add(currentKey);
+
+      for (const neighbor of this.getFlowNeighbors(current.x, current.y, chunkSize, terrain)) {
+        const neighborKey = `${neighbor.x},${neighbor.y}`;
+        const neighborTile = terrain[neighbor.y][neighbor.x];
+
+        // Skip if already evaluated, is MOUNTAIN_SNOW, or existing water (except ocean and lakes)
+        if (closedSet.has(neighborKey) ||
+          neighborTile.b === Biome.MOUNTAIN_SNOW ||
+          (neighborTile.w && neighborTile.wT !== WaterType.OCEAN && neighborTile.wT !== WaterType.LAKE)) {
+          continue;
+        }
+
+        const moveCost = this.calculateMoveCost(
+          current.x, current.y,
+          neighbor.x, neighbor.y,
+          terrain
+        );
+
+        const tentativeGScore = gScore.get(currentKey)! + moveCost;
+
+        if (!gScore.has(neighborKey) || tentativeGScore < gScore.get(neighborKey)!) {
+          cameFrom.set(neighborKey, current);
+          gScore.set(neighborKey, tentativeGScore);
+
+          if (!openSet.contains({ x: neighbor.x, y: neighbor.y }, (a, b) => a.x === b.x && a.y === b.y)) {
+            openSet.enqueue({
+              x: neighbor.x,
+              y: neighbor.y,
+              cost: tentativeGScore + this.heuristic(neighbor.x, neighbor.y, terrain, chunkSize, hasOcean)
+            });
+          }
+        }
+      }
+    }
+
+    return []; // No path found
+  }
+
+  private handleDepression(terrain: TerrainPoint[][], chunkSize: number, x: number, y: number, hasOcean: boolean): void {
+    const visited = new Set<string>();
+    const queue: { x: number, y: number }[] = [{ x, y }];
+    const depressionTiles: { x: number, y: number }[] = [];
+    let lowestOutlet: { x: number, y: number, height: number } | null = null;
+    const startHeight = terrain[y][x].nH;
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const currentKey = `${current.x},${current.y}`;
+      const currentTile = terrain[current.y][current.x];
+
+      // Skip if already visited, is ocean, or is MOUNTAIN_SNOW
+      if (visited.has(currentKey)) continue;
+      if (currentTile.w && currentTile.wT === WaterType.OCEAN) continue;
+      if (currentTile.b === Biome.MOUNTAIN_SNOW) continue;
+
+      visited.add(currentKey);
+      depressionTiles.push(current);
+
+      // Check all neighbors
+      for (const neighbor of this.getFlowNeighbors(current.x, current.y, chunkSize, terrain)) {
+        const neighborKey = `${neighbor.x},${neighbor.y}`;
+        const neighborTile = terrain[neighbor.y][neighbor.x];
+        const neighborHeight = neighborTile.nH;
+
+        // Skip MOUNTAIN_SNOW neighbors
+        if (neighborTile.b === Biome.MOUNTAIN_SNOW) continue;
+
+        if (!visited.has(neighborKey)) {
+          if (neighborHeight < startHeight) {
+            // Only consider non-lake tiles as potential outlets
+            if (!neighborTile.w || neighborTile.wT === WaterType.OCEAN) {
+              if (!lowestOutlet || neighborHeight < lowestOutlet.height) {
+                lowestOutlet = {
+                  x: neighbor.x,
+                  y: neighbor.y,
+                  height: neighborHeight
+                };
+              }
+            }
+          } else {
+            queue.push(neighbor);
+          }
+        }
+      }
+    }
+
+    // Only create lake if we have valid tiles
+    if (depressionTiles.length > 0) {
+
+      // Create lake in depression (but not at the outlet)
+      for (const tile of depressionTiles) {
+        // Don't convert the outlet to a lake - leave it as land so river can flow from it
+        if (lowestOutlet && tile.x === lowestOutlet.x && tile.y === lowestOutlet.y) {
+          continue;
+        }
+        this.setAsLake(terrain[tile.y][tile.x]);
+      }
+
+      // Continue river from outlet if found
+      if (lowestOutlet) {
+        // Create a river tile at the outlet first
+        this.setAsRiver(terrain[lowestOutlet.y][lowestOutlet.x]);
+        // Then continue the river from there
+        this.generateRiverPathAStar(terrain, chunkSize, lowestOutlet.x, lowestOutlet.y, hasOcean);
+      }
+    }
+  }
+  private reconstructPath(cameFrom: Map<string, { x: number, y: number }>, end: { x: number, y: number }): { x: number, y: number }[] {
+    const path: { x: number, y: number }[] = [];
+    let current: { x: number, y: number } | undefined = end;
+
+    while (current) {
+      path.unshift(current);
+      const currentKey = `${current.x},${current.y}`;
+      current = cameFrom.get(currentKey);
+    }
+
+    return path;
+  }
+
+  private setAsRiver(point: TerrainPoint): void {
+    // Only convert non-ocean tiles
+    if (point.w && point.wT === WaterType.OCEAN) return;
+
+    point.w = true;
+    point.wT = WaterType.RIVER;
+    point.b = Biome.RIVER;
+    point.c = ColorIndex.RIVER;
+    // Remove non-water properties
+    delete point.sT;
+    delete point.v;
+    delete point.vT;
+  }
+
+  private setAsLake(point: TerrainPoint): void {
+    point.w = true;
+    point.wT = WaterType.LAKE;
+    point.b = Biome.LAKE;
+    point.c = ColorIndex.LAKE;
+    // Remove non-water properties
+    delete point.sT;
+    delete point.v;
+    delete point.vT;
+  }
+
+  private getFlowNeighbors(x: number, y: number, chunkSize: number, terrain: TerrainPoint[][]): { x: number, y: number }[] {
+    const directions = [
+      [0, 1], [1, 0], [0, -1], [-1, 0],  // Cardinal directions
+      [1, 1], [1, -1], [-1, 1], [-1, -1]  // Diagonal directions
+    ];
+
+    return directions
+      .map(([dx, dy]) => ({ x: x + dx, y: y + dy }))
+      .filter(pos =>
+        pos.x >= 0 && pos.x < chunkSize &&
+        pos.y >= 0 && pos.y < chunkSize
+      )
+      .sort((a, b) => terrain[a.y][a.x].nH - terrain[b.y][b.x].nH); // Prefer lower elevations
+  }
+
+
+  private calculateMoveCost(x1: number, y1: number, x2: number, y2: number, terrain: TerrainPoint[][]): number {
+    // Base cost is elevation delta (river wants to flow downhill)
+    const heightDiff = terrain[y2][x2].nH - terrain[y1][x1].nH;
+    let cost = heightDiff > 0 ? heightDiff * 10 : Math.abs(heightDiff); // Penalize going uphill more
+
+    // Add direction penalty
+    const isDiagonal = x1 !== x2 && y1 !== y2;
+    if (isDiagonal) {
+      cost += 0.5; // Slight penalty for diagonal movement
+    }
+
+    return cost;
+  }
+
+  private createRiver(terrain: TerrainPoint[][], path: { x: number, y: number }[]): void {
+    for (let i = 0; i < path.length; i++) {
+      const point = path[i];
+      const tile = terrain[point.y][point.x];
+
+      // Don't convert oceans or MOUNTAIN_SNOW to rivers
+      if ((tile.w && tile.wT === WaterType.OCEAN) || tile.b === Biome.MOUNTAIN_SNOW) continue;
+
+      this.setAsRiver(tile);
+
+      // Handle diagonal moves
+      if (i > 0) {
+        const prev = path[i - 1];
+        if (prev.x !== point.x && prev.y !== point.y) {
+          // Connect via the lower elevation cardinal direction
+          const cardinalOptions = [
+            { x: prev.x, y: point.y },
+            { x: point.x, y: prev.y }
+          ];
+
+          let lowestTile = null;
+          let lowestHeight = Infinity;
+
+          for (const opt of cardinalOptions) {
+            const t = terrain[opt.y][opt.x];
+            if (!t.w && t.b !== Biome.MOUNTAIN_SNOW && t.nH < lowestHeight) {
+              lowestHeight = t.nH;
+              lowestTile = t;
+            }
+          }
+
+          if (lowestTile) {
+            this.setAsRiver(lowestTile);
+          }
+        }
+      }
+    }
+  }
+
+  private heuristic(x: number, y: number, terrain: TerrainPoint[][], chunkSize: number, hasOcean: boolean): number {
+    // If ocean exists in this chunk, prioritize paths toward ocean
+    if (hasOcean) {
+      // Find nearest ocean tile (simplified - could be optimized)
+      let minDistance = Infinity;
+      for (let oy = 0; oy < chunkSize; oy++) {
+        for (let ox = 0; ox < chunkSize; ox++) {
+          if (terrain[oy][ox].w && terrain[oy][ox].wT === WaterType.OCEAN) {
+            const dist = Math.abs(x - ox) + Math.abs(y - oy); // Manhattan distance
+            if (dist < minDistance) minDistance = dist;
+          }
+        }
+      }
+      return minDistance;
+    }
+
+    // Otherwise, just use height as heuristic (lower is better)
+    return terrain[y][x].nH;
   }
 }

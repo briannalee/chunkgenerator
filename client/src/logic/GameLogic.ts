@@ -315,9 +315,9 @@ export class GameLogic {
     // Depth-based water coloring
     const depthFactor = 1 - tile.nH; // Deeper water is darker
     const baseColors = {
-      [WaterType.RIVER]: 0x1E90FF, // DodgerBlue
-      [WaterType.OCEAN]: 0x0f4d8a,  // DeepSkyBlue
-      [WaterType.LAKE]: 0x5F9EA0, // CadetBlue
+      [WaterType.RIVER]: ColorMap[ColorIndex.RIVER], // DodgerBlue
+      [WaterType.OCEAN]: ColorMap[ColorIndex.OCEAN_DEEP],  // DeepSkyBlue
+      [WaterType.LAKE]: ColorMap[ColorIndex.LAKE], // CadetBlue
       [WaterType.NONE]: 0x000000 // Default color for no water
     };
 

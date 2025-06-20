@@ -4,7 +4,7 @@ import { Biome, ChunkData, Tile } from "../types/types";
 
 
 const DEBUG_MODE = true;
-
+const GAP = 4;
 
 export class GameScene extends Phaser.Scene {
   private gameLogic!: GameLogic;
@@ -77,7 +77,7 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number) {
     this.gameLogic.updateFrameTime(delta);
 
-    const speed = 2;
+    const speed = 10;
     const prevX = this.player.x;
     const prevY = this.player.y;
 
@@ -173,8 +173,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderDetailedTile(graphics: Phaser.GameObjects.Graphics, tile: Tile, tileMap: Map<string, Tile>, chunkData: ChunkData) {
-    const tileWorldX = tile.x * TILE_SIZE;
-    const tileWorldY = tile.y * TILE_SIZE;
+    let tileWorldX = tile.x * TILE_SIZE;
+    let tileWorldY = tile.y * TILE_SIZE;
+    if (DEBUG_MODE) {
+      const chunkOffsetX = Math.floor(tile.x / CHUNK_SIZE) * GAP;
+      const chunkOffsetY = Math.floor(tile.y / CHUNK_SIZE) * GAP;
+
+      tileWorldX = tile.x * TILE_SIZE + chunkOffsetX;
+      tileWorldY = tile.y * TILE_SIZE + chunkOffsetY;
+    }
     const baseColor = this.gameLogic.getTileColor(tile);
 
     // Apply steepness darkening

@@ -86,9 +86,9 @@ export const ColorMap: Record<ColorIndex, number> = {
   [ColorIndex.TUNDRA]: 0xE6E6FA, // Light purple for tundra
   [ColorIndex.SNOW]: 0xFFFFFF, // White for snow
   [ColorIndex.MOUNTAIN]: 0xA9A9A9, // Dark gray for mountains
-  [ColorIndex.MOUNTAIN_SNOW]: 0xe8e8e8, // Light gray for snowy mountains
+  [ColorIndex.MOUNTAIN_SNOW]: 0xe8eFFFF, // Light gray for snowy mountains 0xe8e8e8
   [ColorIndex.CLIFF]: 0xA9A9A9, // Gray for cliffs
-  [ColorIndex.RIVER]: 0x1E90FF, // Dodger blue for rivers
+  [ColorIndex.RIVER]: 0xFF0000, // Dodger blue for rivers 0x1E90FF
   [ColorIndex.LAKE]: 0x5F9EA0, // Cadet blue for lakes
   [ColorIndex.SWAMP]: 0x8FBC8F, // Dark sea green for swamps
   [ColorIndex.MARSH]: 0x98FB98, // Pale green for marshes
