@@ -15,15 +15,19 @@ describe("TileBlending", () => {
   // Define hardcoded test chunk coordinates for coverage of various map areas
   let chunkCoordinates = [
     { x: 0, y: 0 },   // Origin
+    { x: 5, y: 5 },   // Distant chunk
+    { x: -3, y: 2 },  // Negative coordinates
+    { x: 10, y: -7 }, // Mixed coordinates
+    { x: 0, y: 15 }   // Far chunk
   ];
 
-  /* Randomly generated chunk coordinates for additional coverage
+  // Randomly generated chunk coordinates for additional coverage
   for (let i = 0; i < 5; i++) {
     chunkCoordinates.push({
       x: Math.floor(Math.random() * 5000) - 2500,
       y: Math.floor(Math.random() * 5000) - 2500
     });
-  }*/
+  }
 
   beforeAll(async () => {
     adapter = NetworkFactory.createAdapter();
@@ -253,7 +257,7 @@ describe("TileBlending", () => {
           if (shouldBlend && nearEdge) {
             if (blendedColor === baseColor) {
               // log debug info
-              console.warn("Blending failed at edge tile", { tile, sx, sy, neighborMap });
+              console.warn("Blending failed intra-chunk tile", { tile, sx, sy, neighborMap });
             }
             expect(blendedColor).not.toBe(baseColor);
           }
