@@ -303,101 +303,7 @@ export class GameLogic {
   }
 
 
-  public getTileColor(tile: Tile): number {
-    if (tile.w) {
-      return this.getWaterColor(tile);
-    } else {
-      return this.getLandColor(tile);
-    }
-  }
-
-  private getWaterColor(tile: WaterTile): number {
-    // Depth-based water coloring
-    const depthFactor = 1 - tile.nH; // Deeper water is darker
-    const baseColors = {
-      [WaterType.RIVER]: 0x1E90FF, // DodgerBlue
-      [WaterType.OCEAN]: 0x0f4d8a,  // DeepSkyBlue
-      [WaterType.LAKE]: 0x5F9EA0, // CadetBlue
-      [WaterType.NONE]: 0x000000 // Default color for no water
-    };
-
-    const baseColor = baseColors[tile.wT];
-    return this.darkenColor(baseColor, depthFactor * 0.7);
-  }
-
-  private getLandColor(tile: LandTile): number {
-    // Elevation-based tinting
-    const elevationTint = this.getElevationTint(tile.nH);
-
-
-    // Get base color for the tile's biome
-    let color = ColorMap[tile.c] || 0x000000; // Default to black if unknown biome
-    // Update dynamic colors for forests and mountains
-    if (tile.b === Biome.FOREST || tile.b === Biome.DENSE_FOREST) {
-      color = this.getForestColor(tile);
-    } else if (tile.b === Biome.MOUNTAIN) {
-      color = this.getMountainColor(tile);
-    }
-
-    // Mix with elevation tint
-    return this.mixColors(color, elevationTint, 0.7);
-  }
-
-  private getForestColor(tile: LandTile): number {
-    // Vegetation density affects forest color
-    const density = tile.v;
-    const baseColors: Record<VegetationType, number> = {
-      [VegetationType.GRASS]: 0x7CFC00,
-      [VegetationType.SHRUB]: 0x6B8E23,
-      [VegetationType.DECIDUOUS]: 0x228B22,
-      [VegetationType.CONIFEROUS]: 0x2E8B57,
-      [VegetationType.TROPICAL]: 0x006400,
-      [VegetationType.CACTUS]: 0x8B4513,
-      [VegetationType.TUNDRA_VEGETATION]: 0xD2B48C,
-      [VegetationType.NONE]: 0
-    };
-    return this.darkenColor(baseColors[tile.vT], 1 - (density * 0.5));
-  }
-
-  private getMountainColor(tile: LandTile): number {
-    // Rocky appearance with snow caps
-    if (tile.t < 0) { // Below freezing
-      return 0xFFFFFF; // Snow
-    }
-    return 0xA9A9A9; // Rock
-  }
-
-  // Color utility functions
-  public darkenColor(color: number, factor: number): number {
-    const r = Math.max(0, ((color >> 16) & 0xFF) * (1 - factor));
-    const g = Math.max(0, ((color >> 8) & 0xFF) * (1 - factor));
-    const b = Math.max(0, (color & 0xFF) * (1 - factor));
-    return (r << 16) + (g << 8) + b;
-  }
-
-  private mixColors(color1: number, color2: number, ratio: number): number {
-    const r1 = (color1 >> 16) & 0xFF;
-    const g1 = (color1 >> 8) & 0xFF;
-    const b1 = color1 & 0xFF;
-
-    const r2 = (color2 >> 16) & 0xFF;
-    const g2 = (color2 >> 8) & 0xFF;
-    const b2 = color2 & 0xFF;
-
-    const r = Math.round(r1 * ratio + r2 * (1 - ratio));
-    const g = Math.round(g1 * ratio + g2 * (1 - ratio));
-    const b = Math.round(b1 * ratio + b2 * (1 - ratio));
-
-    return (r << 16) + (g << 8) + b;
-  }
-
-  private getElevationTint(elevation: number): number {
-    // Higher elevations get more gray/rocky
-    if (elevation > 0.8) return 0xAAAAAA;
-    if (elevation > 0.6) return 0xCCCCCC;
-    return 0xFFFFFF; // No tint
-  }
-
+  
 
   // Player management
   public updatePlayers(playersData: Record<string, PlayerData>): void {
@@ -558,5 +464,66 @@ export class GameLogic {
     this.lastPlayerChunkX = Math.floor(this.playerPosition.x / chunkSize);
     this.lastPlayerChunkY = Math.floor(this.playerPosition.y / chunkSize);
     this.lastChunkCheck = Date.now();
+  }
+
+  // In GameLogic.ts - add these methods to the class
+
+  public getChunkWithBorders(x: number, y: number): ChunkData | null {
+    const chunkKey = `${x},${y}`;
+    if (!this.chunks[chunkKey]) return null;
+
+    // Clone the chunk data to avoid modifying original
+    const chunkWithBorders = JSON.parse(JSON.stringify(this.chunks[chunkKey]));
+
+    // Get neighboring chunks
+    const neighbors = [
+      { dx: -1, dy: 0 },  // west
+      { dx: 1, dy: 0 },   // east
+      { dx: 0, dy: -1 },  // north
+      { dx: 0, dy: 1 },   // south
+      { dx: -1, dy: -1 }, // northwest
+      { dx: 1, dy: -1 },  // northeast
+      { dx: -1, dy: 1 },  // southwest
+      { dx: 1, dy: 1 }    // southeast
+    ];
+
+    for (const neighbor of neighbors) {
+      const neighborKey = `${x + neighbor.dx},${y + neighbor.dy}`;
+      if (this.chunks[neighborKey]) {
+        // Add relevant border tiles from neighbor
+        const neighborChunk = this.chunks[neighborKey];
+        for (const tile of neighborChunk.tiles) {
+          // Check if tile is on the edge that borders our chunk
+          const isBorderTile = this.isBorderTile(tile, neighbor.dx, neighbor.dy);
+          if (isBorderTile) {
+            chunkWithBorders.tiles.push({ ...tile });
+          }
+        }
+      }
+    }
+
+    return chunkWithBorders;
+  }
+
+  private isBorderTile(tile: Tile, dx: number, dy: number): boolean {
+    const tileInChunkX = tile.x % CHUNK_SIZE;
+    const tileInChunkY = tile.y % CHUNK_SIZE;
+
+    // West neighbor - need east border tiles
+    if (dx === -1 && tileInChunkX === CHUNK_SIZE - 1) return true;
+    // East neighbor - need west border tiles
+    if (dx === 1 && tileInChunkX === 0) return true;
+    // North neighbor - need south border tiles
+    if (dy === -1 && tileInChunkY === CHUNK_SIZE - 1) return true;
+    // South neighbor - need north border tiles
+    if (dy === 1 && tileInChunkY === 0) return true;
+
+    // Diagonal neighbors - need corner tiles
+    if (dx === -1 && dy === -1 && tileInChunkX === CHUNK_SIZE - 1 && tileInChunkY === CHUNK_SIZE - 1) return true;
+    if (dx === 1 && dy === -1 && tileInChunkX === 0 && tileInChunkY === CHUNK_SIZE - 1) return true;
+    if (dx === -1 && dy === 1 && tileInChunkX === CHUNK_SIZE - 1 && tileInChunkY === 0) return true;
+    if (dx === 1 && dy === 1 && tileInChunkX === 0 && tileInChunkY === 0) return true;
+
+    return false;
   }
 }
