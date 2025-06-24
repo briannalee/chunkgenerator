@@ -227,8 +227,8 @@ describe("TileBlending", () => {
 
         tiles.forEach((tile: any) => {
 
-          const sx = tile.x - chunkData.chunk.x; // tile index within chunk (0-9)
-          const sy = tile.y - chunkData.chunk.y;
+          const sx = tile.x;
+          const sy = tile.y;
           if (sx === 0 || sx === 9 || sy === 0 || sy === 9) return; // skip edge
 
           const neighbors = getAdjacentTiles(tile, tiles);
