@@ -158,6 +158,14 @@ export class GameScene extends Phaser.Scene {
     const { x: chunkX, y: chunkY, tiles } = chunkData;
     const chunkKey = `${chunkX},${chunkY}`;
 
+    // === Start of Changes ===
+    // Instead of using raw 'tiles', get the extended chunk with border tiles from neighbors
+    // This allows 'tileMap' to include cross-chunk neighbors for accurate blending
+    const extendedChunk = this.gameLogic.getChunkWithBorders(chunkX, chunkY);
+    // Use extended tiles if available; fall back to original if not (e.g., if no neighbors loaded)
+    const renderTiles = extendedChunk ? extendedChunk.tiles : tiles;
+    // === End of Changes ===
+
     let graphics = this.chunkGraphics.get(chunkKey);
     if (!graphics) {
       graphics = this.add.graphics();
@@ -166,14 +174,17 @@ export class GameScene extends Phaser.Scene {
 
     // Create a tile lookup map for neighbor checking
     const tileMap = new Map<string, Tile>();
-    tiles.forEach(tile => {
+    // Updated to use 'renderTiles' instead of 'tiles' for cross-chunk support
+    renderTiles.forEach(tile => {
       tileMap.set(`${tile.x},${tile.y}`, tile);
     });
 
-    tiles.forEach((tile) => {
+    // Updated to use 'renderTiles' instead of 'tiles'
+    renderTiles.forEach((tile) => {
       this.renderDetailedTile(graphics, tile, tileMap, chunkData);
     });
   }
+
 
 
   private renderDetailedTile(graphics: Phaser.GameObjects.Graphics, tile: Tile, tileMap: Map<string, Tile>, chunkData: ChunkData) {

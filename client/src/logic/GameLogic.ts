@@ -466,8 +466,6 @@ export class GameLogic {
     this.lastChunkCheck = Date.now();
   }
 
-  // In GameLogic.ts - add these methods to the class
-
   public getChunkWithBorders(x: number, y: number): ChunkData | null {
     const chunkKey = `${x},${y}`;
     if (!this.chunks[chunkKey]) return null;
