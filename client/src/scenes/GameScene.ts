@@ -152,8 +152,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderChunk(chunkData: ChunkData) {
-    const { x: chunkX, y: chunkY, tiles } = chunkData;
+    const { x: chunkX, y: chunkY } = chunkData;
     const chunkKey = `${chunkX},${chunkY}`;
+
+    // Get chunk with border tiles from neighbors
+    const chunkWithBorders = this.gameLogic.getChunkWithBorders(chunkX, chunkY);
+    if (!chunkWithBorders) return;
 
     let graphics = this.chunkGraphics.get(chunkKey);
     if (!graphics) {
@@ -161,20 +165,25 @@ export class GameScene extends Phaser.Scene {
       this.chunkGraphics.set(chunkKey, graphics);
     }
 
+    // Clear previous rendering
+    graphics.clear();
+
     // Create a tile lookup map for neighbor checking
     const tileMap = new Map<string, Tile>();
-    tiles.forEach(tile => {
+    chunkWithBorders.tiles.forEach(tile => {
       tileMap.set(`${tile.x},${tile.y}`, tile);
     });
 
-    tiles.forEach((tile) => {
+    // Only render tiles that belong to this chunk (not border tiles from neighbors)
+    const chunkTiles = chunkData.tiles;
+    chunkTiles.forEach((tile) => {
       this.renderDetailedTile(graphics, tile, tileMap, chunkData);
     });
   }
 
   private renderDetailedTile(graphics: Phaser.GameObjects.Graphics, tile: Tile, tileMap: Map<string, Tile>, chunkData: ChunkData) {
-    const tileWorldX = tile.x * TILE_SIZE;
-    const tileWorldY = tile.y * TILE_SIZE;
+    const tileWorldX = chunkData.x + tile.x * TILE_SIZE;
+    const tileWorldY = chunkData.y + tile.y * TILE_SIZE;
     const baseColor = this.gameLogic.getTileColor(tile);
 
     // Apply steepness darkening
@@ -228,9 +237,10 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+
   private getNeighbors(tile: Tile, tileMap: Map<string, Tile>): any {
-    // Check current chunk first
-    let neighbors = {
+    // Check all directions - the tileMap now includes border tiles from neighbors
+    return {
       north: tileMap.get(`${tile.x},${tile.y - 1}`),
       south: tileMap.get(`${tile.x},${tile.y + 1}`),
       east: tileMap.get(`${tile.x + 1},${tile.y}`),
@@ -240,48 +250,6 @@ export class GameScene extends Phaser.Scene {
       southeast: tileMap.get(`${tile.x + 1},${tile.y + 1}`),
       southwest: tileMap.get(`${tile.x - 1},${tile.y + 1}`)
     };
-
-    // If any neighbor is missing, check adjacent chunks
-    if (Object.values(neighbors).some(n => n === undefined)) {
-      const chunkX = Math.floor(tile.x / CHUNK_SIZE);
-      const chunkY = Math.floor(tile.y / CHUNK_SIZE);
-
-      // Check if tile is on the edge of the chunk
-      const tileInChunkX = tile.x % CHUNK_SIZE;
-      const tileInChunkY = tile.y % CHUNK_SIZE;
-
-      // Helper to get tile from adjacent chunk
-      const getFromAdjacentChunk = (dx: number, dy: number, x: number, y: number): Tile | undefined => {
-        const adjChunkKey = `${chunkX + dx},${chunkY + dy}`;
-        const adjChunk = this.gameLogic.chunks[adjChunkKey];
-        if (!adjChunk) return undefined;
-
-        const adjTileMap = new Map<string, Tile>();
-        adjChunk.tiles.forEach(t => adjTileMap.set(`${t.x},${t.y}`, t));
-        return adjTileMap.get(`${x},${y}`);
-      };
-
-      // Check north neighbor in adjacent chunk
-      if (tileInChunkY === 0 && !neighbors.north) {
-        neighbors.north = getFromAdjacentChunk(0, -1, tile.x, tile.y - 1);
-      }
-      // Check south neighbor in adjacent chunk
-      if (tileInChunkY === CHUNK_SIZE - 1 && !neighbors.south) {
-        neighbors.south = getFromAdjacentChunk(0, 1, tile.x, tile.y + 1);
-      }
-      // Check west neighbor in adjacent chunk
-      if (tileInChunkX === 0 && !neighbors.west) {
-        neighbors.west = getFromAdjacentChunk(-1, 0, tile.x - 1, tile.y);
-      }
-      // Check east neighbor in adjacent chunk
-      if (tileInChunkX === CHUNK_SIZE - 1 && !neighbors.east) {
-        neighbors.east = getFromAdjacentChunk(1, 0, tile.x + 1, tile.y);
-      }
-      // Check diagonal neighbors if needed
-      // (You can expand this for northeast, northwest, etc. if needed)
-    }
-
-    return neighbors;
   }
 
   private shouldBlendWithNeighbors(tile: Tile, neighbors: any): boolean {
