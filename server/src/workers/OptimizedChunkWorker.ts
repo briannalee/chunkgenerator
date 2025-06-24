@@ -50,8 +50,9 @@ const generateChunk = async (x: number, y: number): Promise<ChunkData> => {
     console.error('Redis cache error in worker:', error);
   }
   
-  // Generate new chunk
+  // Generate new chunk with border tiles
   const terrain = worldGenerator.generateChunk(x, y, 10);
+  const borderTiles = worldGenerator.generateBorderTiles(x, y, 10);
 
   let tiles = [];
   for (let row of terrain) {
@@ -80,6 +81,33 @@ const generateChunk = async (x: number, y: number): Promise<ChunkData> => {
         point.sT || 0
       ]);
     }
+  }
+
+  // Add border tiles in the same format
+  for (let point of borderTiles) {
+    const h = Math.round(point.h * 100) / 100;
+    const nH = Math.round(point.nH * 100) / 100;
+    const t = Math.round(point.t * 100) / 100;
+    const p = Math.round(point.p * 100) / 100;
+    const stp = Math.round(point.stp * 100) / 100;
+    const v = point.v ? Math.round(point.v * 100) / 100 : 0;
+    tiles.push([
+      point.x,
+      point.y,
+      h,
+      nH,
+      point.w ? 1 : 0,
+      t,
+      p,
+      stp,
+      point.b,
+      point.c,
+      point.iC ? 1 : 0,
+      point.wT || 0,
+      v,
+      point.vT || 0,
+      point.sT || 0
+    ]);
   }
   
   const chunk: ChunkData = { x, y, tiles, terrain };

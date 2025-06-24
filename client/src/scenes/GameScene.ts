@@ -164,15 +164,29 @@ export class GameScene extends Phaser.Scene {
       this.chunkGraphics.set(chunkKey, graphics);
     }
 
-    // Create a tile lookup map for neighbor checking
-    const tileMap = new Map<string, Tile>();
-    tiles.forEach(tile => {
-      tileMap.set(`${tile.x},${tile.y}`, tile);
-    });
+    // Create a tile lookup map including border tiles from neighbors
+    const tileMap = this.createExtendedTileMap(chunkData);
 
-    tiles.forEach((tile) => {
+    // Only render tiles that belong to this chunk (not border tiles)
+    const chunkTiles = tiles.filter(tile => 
+      tile.x >= 0 && tile.x < CHUNK_SIZE && 
+      tile.y >= 0 && tile.y < CHUNK_SIZE
+    );
+
+    chunkTiles.forEach((tile) => {
       this.renderDetailedTile(graphics, tile, tileMap, chunkData);
     });
+  }
+
+  private createExtendedTileMap(chunkData: ChunkData): Map<string, Tile> {
+    const tileMap = new Map<string, Tile>();
+    
+    // Add all tiles from this chunk (including border tiles from neighbors)
+    chunkData.tiles.forEach(tile => {
+      tileMap.set(`${tile.x},${tile.y}`, tile);
+    });
+    
+    return tileMap;
   }
 
 
@@ -222,7 +236,7 @@ export class GameScene extends Phaser.Scene {
 
 
   private getNeighbors(tile: Tile, tileMap: Map<string, Tile>): any {
-    // Check all directions - the tileMap now includes border tiles from neighbors
+    // The tileMap now includes border tiles from adjacent chunks
     return {
       north: tileMap.get(`${tile.x},${tile.y - 1}`),
       south: tileMap.get(`${tile.x},${tile.y + 1}`),

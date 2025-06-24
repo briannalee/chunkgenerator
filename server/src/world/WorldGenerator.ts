@@ -947,4 +947,115 @@ export class WorldGenerator {
     // Otherwise, just use height as heuristic (lower is better)
     return terrain[y][x].nH;
   }
+
+  generateBorderTiles(chunkX: number, chunkY: number, chunkSize: number = 10): TerrainPoint[] {
+    const borderTiles: TerrainPoint[] = [];
+    
+    // Generate border tiles from adjacent chunks
+    const adjacentChunks = [
+      { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 }, // Top row
+      { dx: -1, dy: 0 },                     { dx: 1, dy: 0 },  // Left and right
+      { dx: -1, dy: 1 },  { dx: 0, dy: 1 },  { dx: 1, dy: 1 }   // Bottom row
+    ];
+
+    for (const { dx, dy } of adjacentChunks) {
+      const adjChunkX = chunkX + dx;
+      const adjChunkY = chunkY + dy;
+      
+      // Determine which edge tiles we need from this adjacent chunk
+      const edgeTiles = this.getEdgeTilesForChunk(adjChunkX, adjChunkY, chunkSize, dx, dy);
+      
+      // Generate only the needed edge tiles
+      for (const { x, y } of edgeTiles) {
+        const worldX = adjChunkX * chunkSize + x;
+        const worldY = adjChunkY * chunkSize + y;
+        
+        // Use cached values if available, otherwise generate
+        const height = this.getCachedHeight(worldX, worldY);
+        const h1 = this.getCachedHeight(worldX + 1, worldY);
+        const h2 = this.getCachedHeight(worldX, worldY + 1);
+        
+        // Generate climate data if not cached
+        const key = `${worldX},${worldY}`;
+        if (!this.temperatureCache.has(key)) {
+          const normalizedHeight = (height + 1) * 0.5;
+          const temperature = this.noiseGen.generateTemperature(worldX, worldY, normalizedHeight);
+          this.temperatureCache.set(key, temperature);
+        }
+        
+        if (!this.precipitationCache.has(key)) {
+          const normalizedHeight = (height + 1) * 0.5;
+          const temperature = this.temperatureCache.get(key)!;
+          const precipitation = this.noiseGen.generatePrecipitation(worldX, worldY, normalizedHeight, temperature);
+          this.precipitationCache.set(key, precipitation);
+        }
+        
+        const temperature = this.temperatureCache.get(key)!;
+        const precipitation = this.precipitationCache.get(key)!;
+        
+        const normalizedHeight = (height + 1) * 0.5;
+        const steepness = Math.min(1, (Math.abs(height - h1) + Math.abs(height - h2)) * 5);
+        const isWater = normalizedHeight < this.seaLevel;
+
+        const point: TerrainPoint = {
+          x,
+          y,
+          h: height,
+          nH: normalizedHeight,
+          w: isWater,
+          t: temperature,
+          p: precipitation,
+          stp: steepness,
+          b: Biome.GRASSLAND,
+          c: ColorIndex.GRASSLAND,
+          _possibleBeach: false
+        };
+
+        this.assignTerrainProperties(point);
+        borderTiles.push(point);
+      }
+    }
+    
+    return borderTiles;
+  }
+
+  private getEdgeTilesForChunk(chunkX: number, chunkY: number, chunkSize: number, dx: number, dy: number): { x: number, y: number }[] {
+    const tiles: { x: number, y: number }[] = [];
+    
+    if (dx === -1 && dy === -1) {
+      // Top-left corner: need bottom-right tile
+      tiles.push({ x: chunkSize - 1, y: chunkSize - 1 });
+    } else if (dx === 0 && dy === -1) {
+      // Top: need bottom edge
+      for (let x = 0; x < chunkSize; x++) {
+        tiles.push({ x, y: chunkSize - 1 });
+      }
+    } else if (dx === 1 && dy === -1) {
+      // Top-right corner: need bottom-left tile
+      tiles.push({ x: 0, y: chunkSize - 1 });
+    } else if (dx === -1 && dy === 0) {
+      // Left: need right edge
+      for (let y = 0; y < chunkSize; y++) {
+        tiles.push({ x: chunkSize - 1, y });
+      }
+    } else if (dx === 1 && dy === 0) {
+      // Right: need left edge
+      for (let y = 0; y < chunkSize; y++) {
+        tiles.push({ x: 0, y });
+      }
+    } else if (dx === -1 && dy === 1) {
+      // Bottom-left corner: need top-right tile
+      tiles.push({ x: chunkSize - 1, y: 0 });
+    } else if (dx === 0 && dy === 1) {
+      // Bottom: need top edge
+      for (let x = 0; x < chunkSize; x++) {
+        tiles.push({ x, y: 0 });
+      }
+    } else if (dx === 1 && dy === 1) {
+      // Bottom-right corner: need top-left tile
+      tiles.push({ x: 0, y: 0 });
+    }
+    
+    return tiles;
+  }
 }
