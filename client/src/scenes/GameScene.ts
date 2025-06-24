@@ -16,6 +16,7 @@ export class GameScene extends Phaser.Scene {
   private players: Record<string, Phaser.GameObjects.Rectangle> = {};
   private renderedChunks: Set<string> = new Set();
   private chunkGraphics: Map<string, Phaser.GameObjects.Graphics> = new Map();
+  private coordText!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: "GameScene" });
@@ -74,6 +75,15 @@ export class GameScene extends Phaser.Scene {
           this.debugMemoryUsage();
         }
       });
+
+      this.coordText = this.add.text(10, 10, '', {
+        font: '16px monospace',
+        color: '#ffffff',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        padding: { x: 4, y: 2 }
+      })
+        .setScrollFactor(0) // keep it fixed on screen
+        .setDepth(10);
     }
   }
 
@@ -117,6 +127,13 @@ export class GameScene extends Phaser.Scene {
 
     // Update player renderings
     this.renderPlayers();
+
+    if (DEBUG_MODE) {
+      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}`);
+      const chunkX = Math.floor(this.player.x / (CHUNK_SIZE * TILE_SIZE));
+      const chunkY = Math.floor(this.player.y / (CHUNK_SIZE * TILE_SIZE));
+      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}, Chunk: (${chunkX}, ${chunkY})`);
+    }
   }
 
   private updateVisibleChunks() {
