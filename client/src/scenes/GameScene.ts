@@ -80,7 +80,7 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number) {
     this.gameLogic.updateFrameTime(delta);
 
-    const speed = 2;
+    const speed = 10;
     const prevX = this.player.x;
     const prevY = this.player.y;
 
@@ -185,8 +185,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderDetailedTile(graphics: Phaser.GameObjects.Graphics, tile: Tile, tileMap: Map<string, Tile>, chunkData: ChunkData) {
-    const tileWorldX = tile.x * TILE_SIZE;
-    const tileWorldY = tile.y * TILE_SIZE;
+    const tileWorldX = chunkData.x + tile.x * TILE_SIZE;
+    const tileWorldY = chunkData.y + tile.y * TILE_SIZE;
     const color = ColorCalculations.getTileColor(tile);
 
     // Render base tile with smooth biome transitions
@@ -197,12 +197,6 @@ export class GameScene extends Phaser.Scene {
 
     // Add biome-specific details
     TileVariation.addBiomeDetails(graphics, tile, tileWorldX, tileWorldY);
-
-    // Render cliff edges with hard borders
-    if (!tile.w && (tile as any).iC) {
-      graphics.lineStyle(2, 0x333333, 1);
-      graphics.strokeRect(tileWorldX, tileWorldY, TILE_SIZE, TILE_SIZE);
-    }
   }
 
   private renderTileWithTransitions(graphics: Phaser.GameObjects.Graphics, tile: Tile, tileMap: Map<string, Tile>, x: number, y: number, baseColor: number) {

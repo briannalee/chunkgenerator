@@ -9,6 +9,7 @@
     "test:watch": "vitest watch",
     "test:terrain": "vitest run test/terrainData.test.ts",
     "test:river": "vitest run test/riverData.test.ts",
+    "test:blending": "vitest run test/tileBlending.test.ts",
     "test:coverage": "vitest run --coverage"
   },
   "keywords": [],

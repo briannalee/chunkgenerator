@@ -1,4 +1,4 @@
-import { Biome, ColorMap, LandTile, Tile, VegetationType, WaterTile, WaterType } from "@/types/types";
+import { Biome, ColorMap, LandTile, Tile, VegetationType, WaterTile, WaterType } from "../types/types";
 
 export class ColorCalculations {
 
@@ -16,6 +16,7 @@ export class ColorCalculations {
       adjustedColor =
        this.darkenColor(baseColor, 0.2);
     }
+
     return adjustedColor;
   }
 
@@ -48,7 +49,7 @@ export class ColorCalculations {
     }
 
     // Mix with elevation tint
-    return this.mixColors(color, elevationTint, 0.7);
+    return color;//this.mixColors(color, elevationTint, 0.7);
   }
 
   static getForestColor(tile: LandTile): number {

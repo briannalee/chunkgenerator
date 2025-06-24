@@ -6,7 +6,7 @@ export class TileBlending {
 
     // Define which biomes can blend with each other
     const blendableGroups = [
-      [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
     ];
 
     return blendableGroups.some(group =>
@@ -15,18 +15,13 @@ export class TileBlending {
   }
 
   static shouldBlendWithNeighbors(tile: Tile, neighbors: any): boolean {
-    // Don't blend oceans and cliffs - keep hard borders
-    if (tile.w || tile.iC) return false;
-
     // Check if any neighbor has a different biome that should blend
-    const blendableBiomes = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17];
+    const blendableBiomes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 
     if (!blendableBiomes.includes(tile.b)) return false;
 
     return Object.values(neighbors).some((neighbor: any) =>
       neighbor &&
-      !neighbor.w &&
-      !neighbor.iC &&
       neighbor.b !== tile.b &&
       blendableBiomes.includes(neighbor.b)
     );

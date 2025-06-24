@@ -82,12 +82,12 @@ export const ColorMap: Record<ColorIndex, number> = {
   [ColorIndex.DENSE_FOREST]: 0x006400, // Dark green for dense forest
   [ColorIndex.JUNGLE]: 0x228B22, // Jungle green
   [ColorIndex.SAVANNA]: 0xD2B48C, // Tan for savanna
-  [ColorIndex.DESERT]: 0xF4A460, // Sandy color for desert
+  [ColorIndex.DESERT]: 0x000000,//0xF4A460, // Sandy color for desert
   [ColorIndex.TUNDRA]: 0xE6E6FA, // Light purple for tundra
   [ColorIndex.SNOW]: 0xFFFFFF, // White for snow
-  [ColorIndex.MOUNTAIN]: 0xA9A9A9, // Dark gray for mountains
+  [ColorIndex.MOUNTAIN]:  0xA9A9A9, // Dark gray for mountains
   [ColorIndex.MOUNTAIN_SNOW]: 0xe8e8e8, // Light gray for snowy mountains
-  [ColorIndex.CLIFF]: 0xA9A9A9, // Gray for cliffs
+  [ColorIndex.CLIFF]: 0x575656, // Gray for cliffs
   [ColorIndex.RIVER]: 0x1E90FF, // Dodger blue for rivers
   [ColorIndex.LAKE]: 0x5F9EA0, // Cadet blue for lakes
   [ColorIndex.SWAMP]: 0x8FBC8F, // Dark sea green for swamps
