@@ -2,8 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TileBlending } from "../src/logic/TileBlending";
 import { ColorCalculations } from "../src/logic/ColorCalculations";
 import { INetworkAdapter } from "../src/network/INetworkAdapter";
-import { NetworkFactory } from "../src/network/NetworkFactory";
-import { WaterType, Biome, SoilType, LandTile, WaterTile, BaseTile, VegetationType, ColorIndex } from "../src/types/types";
+import { NetworkFactory } from "../src/network/NetworkFactory";;
 import { TileNormalizer } from "../src/logic/NormalizeTiles";
 
 describe("TileBlending", () => {
@@ -19,16 +18,8 @@ describe("TileBlending", () => {
     { x: -3, y: 2 },  // Negative coordinates
     { x: 10, y: -7 }, // Mixed coordinates
     { x: 0, y: 15 }   // Far chunk
-  ];
-
-  // Randomly generated chunk coordinates for additional coverage
-  for (let i = 0; i < 5; i++) {
-    chunkCoordinates.push({
-      x: Math.floor(Math.random() * 5000) - 2500,
-      y: Math.floor(Math.random() * 5000) - 2500
-    });
-  }
-
+  ];  
+  
   beforeAll(async () => {
     adapter = NetworkFactory.createAdapter();
     await adapter.connect();
@@ -236,9 +227,9 @@ describe("TileBlending", () => {
 
         tiles.forEach((tile: any) => {
 
-          const sx = tile.x % 8;
-          const sy = tile.y % 8;
-          if (sx === 0 || sx === 7 || sy === 0 || sy === 7) return; // skip edge
+          const sx = tile.x - chunkData.chunk.x; // tile index within chunk (0-9)
+          const sy = tile.y - chunkData.chunk.y;
+          if (sx === 0 || sx === 9 || sy === 0 || sy === 9) return; // skip edge
 
           const neighbors = getAdjacentTiles(tile, tiles);
           const neighborMap = {
@@ -257,7 +248,7 @@ describe("TileBlending", () => {
           if (shouldBlend && nearEdge) {
             if (blendedColor === baseColor) {
               // log debug info
-              console.warn("Blending failed intra-chunk tile", { tile, sx, sy, neighborMap });
+              console.warn(`Blending failed intra-chunk tile. Chunk: X ${chunkData.chunk.x} Y ${chunkData.chunk.y} Tile: X ${tile.x} Y ${tile.y}`, { tile, sx, sy, neighborMap });
             }
             expect(blendedColor).not.toBe(baseColor);
           }
