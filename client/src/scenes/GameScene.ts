@@ -155,12 +155,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderChunk(chunkData: ChunkData) {
-    const { x: chunkX, y: chunkY } = chunkData;
+    const { x: chunkX, y: chunkY, tiles } = chunkData;
     const chunkKey = `${chunkX},${chunkY}`;
-
-    // Get chunk with border tiles from neighbors
-    const chunkWithBorders = this.gameLogic.getChunkWithBorders(chunkX, chunkY);
-    if (!chunkWithBorders) return;
 
     let graphics = this.chunkGraphics.get(chunkKey);
     if (!graphics) {
@@ -168,21 +164,17 @@ export class GameScene extends Phaser.Scene {
       this.chunkGraphics.set(chunkKey, graphics);
     }
 
-    // Clear previous rendering
-    graphics.clear();
-
     // Create a tile lookup map for neighbor checking
     const tileMap = new Map<string, Tile>();
-    chunkWithBorders.tiles.forEach(tile => {
+    tiles.forEach(tile => {
       tileMap.set(`${tile.x},${tile.y}`, tile);
     });
 
-    // Only render tiles that belong to this chunk (not border tiles from neighbors)
-    const chunkTiles = chunkData.tiles;
-    chunkTiles.forEach((tile) => {
+    tiles.forEach((tile) => {
       this.renderDetailedTile(graphics, tile, tileMap, chunkData);
     });
   }
+
 
   private renderDetailedTile(graphics: Phaser.GameObjects.Graphics, tile: Tile, tileMap: Map<string, Tile>, chunkData: ChunkData) {
     const tileWorldX = chunkData.x + tile.x * TILE_SIZE;
