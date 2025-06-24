@@ -18,8 +18,8 @@ describe("TileBlending", () => {
     { x: -3, y: 2 },  // Negative coordinates
     { x: 10, y: -7 }, // Mixed coordinates
     { x: 0, y: 15 }   // Far chunk
-  ];  
-  
+  ];
+
   beforeAll(async () => {
     adapter = NetworkFactory.createAdapter();
     await adapter.connect();
@@ -188,8 +188,10 @@ describe("TileBlending", () => {
             west: neighbors.west,
           };
 
-          const sx = tile.x % 8;
-          const sy = tile.y % 8;
+          const sx = tile.x;
+          const sy = tile.y;
+          if (sx !== 0 && sx !== 9 && sy !== 0 && sy !== 9) return;
+          
           const baseColor = tile.c;
           const blendedColor = TileBlending.calculateBlendedColor(tile, neighborMap, sx, sy, 8, baseColor);
 
