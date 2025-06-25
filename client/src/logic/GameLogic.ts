@@ -309,7 +309,13 @@ export class GameLogic {
     return chunkKey;
   }
 
-
+  public requestChunk(x: number, y: number, mode: 'chunk' | 'row' | 'column'): void {
+    const key = `${x},${y}`;
+    if (!this.chunks[key] && !this.pendingChunks.has(key)) {
+      this.pendingChunks.add(key);
+      this.networkAdapter.send({ type: "requestChunk", x, y, mode });
+    }
+  }
   
 
   // Player management
@@ -477,8 +483,10 @@ export class GameLogic {
 
   public getChunkWithBorders(x: number, y: number): ChunkData | null {
     const chunkKey = `${x},${y}`;
-    if (!this.chunks[chunkKey]) return null;
-
+    if (!this.chunks[chunkKey]) {
+      console.warn(`Chunk at (${x}, ${y}) not found`);
+      return null;
+    }
     // Clone the chunk data to avoid modifying original
     const chunkWithBorders = JSON.parse(JSON.stringify(this.chunks[chunkKey]));
 

@@ -48,7 +48,7 @@ describe("Tile Blending Live", () => {
     await new Promise(r => setTimeout(r, 500)); // crude sync delay
 
     for (const coord of chunkCoordinates) {
-      const chunk = await gameLogic.getChunkWithBordersAsync(coord.x, coord.y);
+      const chunk = await gameLogic.getChunkWithBorders(coord.x, coord.y);
       if (chunk) {
         testChunks.push({ chunk });
       } else {
@@ -90,7 +90,8 @@ describe("Tile Blending Live", () => {
 
   it("should produce a blended color when on chunk edge with blendable neighbors", async () => {
     for (const chunkData of testChunks) {
-      const chunkWithBorders = await gameLogic.getChunkWithBordersAsync(chunkData.chunk.x, chunkData.chunk.y);
+      const chunkWithBorders = await gameLogic.getChunkWithBorders(chunkData.chunk.x, chunkData.chunk.y);
+      expect(chunkWithBorders).toBeDefined();
       if (!chunkWithBorders) continue;
 
       const { tiles } = chunkWithBorders;

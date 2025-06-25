@@ -24,7 +24,6 @@ const getAdjacentTiles = (tile: any, tiles: any[]) => {
 describe('Terrain Quality Tests', () => {
   let adapter: INetworkAdapter;
   let testChunks: any[] = [];
-  let tileNormalizer: TileNormalizer;
 
   // Define hardcoded test chunk coordinates for coverage of various map areas
   let chunkCoordinates = [
@@ -47,7 +46,6 @@ describe('Terrain Quality Tests', () => {
   beforeAll(async () => {
     adapter = NetworkFactory.createAdapter();
     await adapter.connect();
-    tileNormalizer = new TileNormalizer();
     // Wait for connection confirmation from server
     await new Promise(resolve => {
       adapter.onMessage((data: any) => data.type === 'connected' && resolve(true));
@@ -59,11 +57,11 @@ describe('Terrain Quality Tests', () => {
         adapter.onMessage((data: any) => {
           if (data.type === 'chunkData') {
             // Normalize tiles when received
-            data.chunk.tiles = tileNormalizer.NormalizeTiles(data.chunk.tiles);
+            data.chunk.tiles = TileNormalizer.NormalizeTiles(data.chunk.tiles);
             resolve(data);
           }
         });
-        adapter.send({ type: 'requestChunk', x: coord.x, y: coord.y });
+        adapter.send({ type: 'requestChunk', x: coord.x, y: coord.y, "mode" : "chunk" });
       });
       testChunks.push(chunk);
 

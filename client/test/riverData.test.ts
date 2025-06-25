@@ -43,7 +43,7 @@ describe('River Quality Tests', () => {
         adapter.onMessage((data: any) => {
           if (data.type === 'chunkData') {
             // Normalize tiles when received
-            data.chunk.tiles = tileNormalizer.NormalizeTiles(data.chunk.tiles);
+            data.chunk.tiles = TileNormalizer.NormalizeTiles(data.chunk.tiles);
             resolve(data);
           }
         });

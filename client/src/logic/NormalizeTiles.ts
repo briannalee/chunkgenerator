@@ -6,7 +6,7 @@ export class TileNormalizer {
    * @param tile - The tile to normalize.
    * @returns The normalized tile object.
    */
-  public NormalizeTile(tile: any): WaterTile | LandTile {
+  public static NormalizeTile(tile: any): WaterTile | LandTile {
     if (Array.isArray(tile)) {
       const isWater = tile[4] === 1;
 
@@ -49,7 +49,7 @@ export class TileNormalizer {
    * @param tiles - The array of tiles to normalize.
    * @returns An array of normalized tile objects.
    */
-   public NormalizeTiles(tiles: any[]): any[] {
+   public static NormalizeTiles(tiles: any[]): any[] {
     return tiles.map(this.NormalizeTile);
   }
 }
