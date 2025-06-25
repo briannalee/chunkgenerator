@@ -85,6 +85,7 @@ async function initDatabase() {
     console.error('Database initialization error:', error);
   }
 }
+
 initDatabase();
 
 // Worker pool with load balancing
