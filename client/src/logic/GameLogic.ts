@@ -36,6 +36,8 @@ export const PREDICTIVE_BUFFER: number = 3; // Additional buffer for predictive 
 export class GameLogic {
   // Configuration
 
+// Network
+  private readonly boundHandleMessage = this.handleNetworkMessage.bind(this);
 
   // Game state
   public chunks: Record<string, ChunkData> = {};
@@ -79,7 +81,12 @@ export class GameLogic {
 
   public async connect() {
     await this.networkAdapter.connect();
-    this.networkAdapter.onMessage(this.handleNetworkMessage.bind(this));
+    this.networkAdapter.onMessage(this.boundHandleMessage);
+  }
+
+  public async disconnect() {
+    this.networkAdapter.offMessage?.(this.boundHandleMessage);
+    await this.networkAdapter.disconnect();
   }
 
   private handleNetworkMessage(data: unknown) {

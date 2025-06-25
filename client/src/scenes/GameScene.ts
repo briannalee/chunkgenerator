@@ -1,9 +1,9 @@
 import Phaser from "phaser";
 import { CHUNK_SIZE, GameLogic, TILE_SIZE } from "../logic/GameLogic";
 import { Biome, ChunkData, Tile } from "../types/types";
-import { ColorCalculations } from "@/logic/ColorCalculations";
-import { TileVariation } from "@/logic/TileVariation";
-import { TileBlending } from "@/logic/TileBlending";
+import { ColorCalculations } from "../logic/ColorCalculations";
+import { TileVariation } from "../logic/TileVariation";
+import { TileBlending } from "../logic/TileBlending";
 
 
 const DEBUG_MODE = true;
@@ -129,10 +129,11 @@ export class GameScene extends Phaser.Scene {
     this.renderPlayers();
 
     if (DEBUG_MODE) {
-      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}`);
       const chunkX = Math.floor(this.player.x / (CHUNK_SIZE * TILE_SIZE));
       const chunkY = Math.floor(this.player.y / (CHUNK_SIZE * TILE_SIZE));
-      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}, Chunk: (${chunkX}, ${chunkY})`);
+      const tileX = Math.floor(this.player.x / TILE_SIZE);
+      const tileY = Math.floor(this.player.y / TILE_SIZE);
+      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}, Tile: (${tileX}, ${tileY}), Chunk: (${chunkX}, ${chunkY})`);
     }
   }
 
