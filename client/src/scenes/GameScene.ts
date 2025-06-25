@@ -178,7 +178,7 @@ export class GameScene extends Phaser.Scene {
     const chunkKey = `${chunkX},${chunkY}`;
 
     // Get chunk with border tiles from neighbors
-    const chunkWithBorders = await this.gameLogic.getChunkWithBordersAsync(chunkX, chunkY);
+    const chunkWithBorders = await this.gameLogic.getChunkWithBorders(chunkX, chunkY);
     if (!chunkWithBorders) return;
 
     let graphics = this.chunkGraphics.get(chunkKey);
