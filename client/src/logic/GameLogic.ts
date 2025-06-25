@@ -490,7 +490,10 @@ export class GameLogic {
   public async getChunkWithBordersAsync(x: number, y: number): Promise<ChunkData | null> {
     const chunkKey = `${x},${y}`;
     const baseChunk = this.chunks[chunkKey];
-    if (!baseChunk) return null;
+      if (!this.chunks[chunkKey]) {
+      console.warn(`Chunk at (${x}, ${y}) not found`);
+      return null;
+    }
 
     const chunkWithBorders: ChunkData = {
       x,

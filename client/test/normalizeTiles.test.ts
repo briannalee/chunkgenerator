@@ -16,7 +16,7 @@ describe('Tile Normalization Tests', () => {
   describe('Tile Normalization', () => {
     it('should correctly normalize land tiles from array format', () => {
       const arrayTile = [1, 2, 0.5, 0.6, 0, 0.3, 0.4, 0.2, Biome.FOREST, ColorIndex.FOREST, 0, WaterType.OCEAN, 0.7, VegetationType.DECIDUOUS, SoilType.CLAY];
-      const normalized = tileNormalizer.NormalizeTile(arrayTile);
+      const normalized = TileNormalizer.NormalizeTile(arrayTile);
 
       expect(normalized).toEqual({
         x: 1,
@@ -38,7 +38,7 @@ describe('Tile Normalization Tests', () => {
 
     it('should correctly normalize water tiles from array format', () => {
       const arrayTile = [1, 2, 0.2, 0.3, 1, 0.4, 0.5, 0.1, Biome.OCEAN_DEEP, ColorIndex.OCEAN_DEEP, 0, WaterType.LAKE];
-      const normalized = tileNormalizer.NormalizeTile(arrayTile);
+      const normalized = TileNormalizer.NormalizeTile(arrayTile);
 
       expect(normalized).toEqual({
         x: 1,
@@ -72,7 +72,7 @@ describe('Tile Normalization Tests', () => {
         vT: VegetationType.GRASS,
         sT: SoilType.PEAT
       };
-      const normalized = tileNormalizer.NormalizeTile(objectTile);
+      const normalized = TileNormalizer.NormalizeTile(objectTile);
       expect(normalized).toBe(objectTile);
     });
 
@@ -90,13 +90,13 @@ describe('Tile Normalization Tests', () => {
         c: ColorIndex.OCEAN_SHALLOW,
         wT: WaterType.RIVER
       };
-      const normalized = tileNormalizer.NormalizeTile(objectTile);
+      const normalized = TileNormalizer.NormalizeTile(objectTile);
       expect(normalized).toBe(objectTile);
     });
 
     it('should properly type cast enum values', () => {
       const arrayTile = [1, 2, 0.5, 0.6, 0, 0.3, 0.4, 0.2, 11 /* Biome.MOUNTAIN */, ColorIndex.MOUNTAIN, 1, 2 /* WaterType.RIVER */, 0.7, 1 /* VegetationType.GRASS */, 0 /* SoilType.SAND */];
-      const normalized = tileNormalizer.NormalizeTile(arrayTile);
+      const normalized = TileNormalizer.NormalizeTile(arrayTile);
 
       // Verify enum values are properly cast
       expect(normalized.b).toBe(Biome.MOUNTAIN);
