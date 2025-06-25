@@ -29,6 +29,7 @@ const port = process.env.PORT || 15432;
 const REDIS_DB = process.env.REDIS_DB || '3';
 const REDIS_URL = process.env.REDIS_URL || `redis://localhost:6379/${REDIS_DB}`
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://chunkuser:chunkpass@localhost:5432/chunkgame';
+const DEBUG_MODE = process.env.DEBUG_MODE || false;
 
 // Redis clients
 const redis = new Redis(REDIS_URL);
@@ -237,6 +238,22 @@ async function updatePlayerPosition(playerId: string, x: number, y: number) {
   } catch (error) {
     console.error('Redis player update error:', error);
   }
+}
+
+async function clearRedis(prefix = 'worker_chunk:') {
+  let cursor = '0';
+  let totalDeleted = 0;
+
+  do {
+    const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 100);
+    cursor = nextCursor;
+    if (keys.length > 0) {
+      await redis.del(...keys);
+      totalDeleted += keys.length;
+    }
+  } while (cursor !== '0');
+
+  console.log(`Deleted ${totalDeleted} Redis keys with prefix "${prefix}"`);
 }
 
 async function getAllPlayers(): Promise<Record<string, { x: number; y: number }>> {
