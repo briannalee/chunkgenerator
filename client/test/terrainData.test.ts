@@ -61,7 +61,7 @@ describe('Terrain Quality Tests', () => {
             resolve(data);
           }
         });
-        adapter.send({ type: 'requestChunk', x: coord.x, y: coord.y, "mode" : "chunk" });
+        adapter.send({ type: 'requestChunk', x: coord.x, y: coord.y});
       });
       testChunks.push(chunk);
 
