@@ -36,6 +36,8 @@ export const PREDICTIVE_BUFFER: number = 3; // Additional buffer for predictive 
 export class GameLogic {
   // Configuration
 
+  // Network
+  private readonly boundHandleMessage = this.handleNetworkMessage.bind(this);
 
   // Game state
   public chunks: Record<string, ChunkData> = {};
@@ -76,57 +78,70 @@ export class GameLogic {
   constructor() {
     this.networkAdapter = NetworkFactory.createAdapter();
   }
-
   public async connect() {
     await this.networkAdapter.connect();
-    this.networkAdapter.onMessage(this.handleNetworkMessage.bind(this));
+    this.networkAdapter.onMessage(this.boundHandleMessage);
+  }
+
+  public async disconnect() {
+    this.networkAdapter.offMessage?.(this.boundHandleMessage);
+    await this.networkAdapter.disconnect();
   }
 
   private handleNetworkMessage(data: unknown) {
     const message = data as any;
 
     if (message.type === "chunkData") {
-      let { x, y, tiles } = message.chunk;
+      const { x, y, tiles, mode } = message.chunk;
       const chunkKey = `${x},${y}`;
-      if (tiles && tiles.length > 0 && Array.isArray(tiles[0])) {
-        tiles = tiles.map((t: any) => {
-          const isWater = t[4] === 1;
-          const baseProperties = {
-            x: t[0],
-            y: t[1],
-            h: t[2],
-            nH: t[3],
-            t: t[5],
-            p: t[6],
-            stp: t[7],
-            b: t[8] as Biome,
-            c: t[9] as ColorIndex,
-            iC: t[10] === 1,
-            w: isWater
-          };
 
-          if (isWater) {
-            return {
-              ...baseProperties,
-              wT: t[11] as WaterType
-            } as WaterTile;
-          } else {
-            return {
-              ...baseProperties,
-              v: t[12],
-              vT: t[13] as VegetationType,
-              sT: t[14] as SoilType
-            } as LandTile;
-          }
-        });
+      if (!tiles || !Array.isArray(tiles[0]) || tiles.length === 0) return;
+
+      const mappedTiles = tiles.map((t: any) => {
+        const isWater = t[4] === 1;
+        const baseProperties = {
+          x: t[0],
+          y: t[1],
+          h: t[2],
+          nH: t[3],
+          t: t[5],
+          p: t[6],
+          stp: t[7],
+          b: t[8] as Biome,
+          c: t[9] as ColorIndex,
+          iC: t[10] === 1,
+          w: isWater
+        };
+
+        return isWater
+          ? { ...baseProperties, wT: t[11] as WaterType } as WaterTile
+          : {
+            ...baseProperties,
+            v: t[12],
+            vT: t[13] as VegetationType,
+            sT: t[14] as SoilType
+          } as LandTile;
+      });
+
+      const chunkData = { x, y, tiles: mappedTiles };
+
+      if (mode === "chunk") {
+        // Only process and render full chunks
+        this.processChunkData(chunkData);
+        this.loadedChunks.add(chunkKey);
+        this.checkPendingChunks();
       }
-      this.processChunkData({ x, y, tiles });
-      this.loadedChunks.add(chunkKey);
+
       this.pendingChunks.delete(chunkKey);
-      this.checkPendingChunks();
-    } else if (message.type === "connected") {
+
+      // Cache it no matter the mode, since border tiles use this.chunks[chunkKey]
+      this.chunks[chunkKey] = chunkData;
+    }
+
+    else if (message.type === "connected") {
       this.playerId = message.id;
       this.updatePlayers(message.players);
+
     } else if (message.type === "playerUpdate") {
       this.updatePlayers(message.players);
     }
@@ -218,7 +233,7 @@ export class GameLogic {
 
       for (const chunkKey of chunksToLoad) {
         const [x, y] = chunkKey.split(',').map(Number);
-        this.networkAdapter.send({ type: "requestChunk", x, y });
+        this.networkAdapter.send({ type: "requestChunk", x, y, "mode": "chunk" });
         this.pendingChunks.add(chunkKey);
       }
 
@@ -302,8 +317,14 @@ export class GameLogic {
     return chunkKey;
   }
 
+  public requestChunk(x: number, y: number, mode: 'chunk' | 'row' | 'column'): void {
+    const key = `${x},${y}`;
+    if (!this.chunks[key] && !this.pendingChunks.has(key)) {
+      this.pendingChunks.add(key);
+      this.networkAdapter.send({ type: "requestChunk", x, y, mode });
+    }
+  }
 
-  
 
   // Player management
   public updatePlayers(playersData: Record<string, PlayerData>): void {
@@ -466,37 +487,93 @@ export class GameLogic {
     this.lastChunkCheck = Date.now();
   }
 
-  // In GameLogic.ts - add these methods to the class
-
-  public getChunkWithBorders(x: number, y: number): ChunkData | null {
+  public async getChunkWithBordersAsync(x: number, y: number): Promise<ChunkData | null> {
     const chunkKey = `${x},${y}`;
-    if (!this.chunks[chunkKey]) return null;
+    const baseChunk = this.chunks[chunkKey];
+    if (!baseChunk) return null;
 
-    // Clone the chunk data to avoid modifying original
-    const chunkWithBorders = JSON.parse(JSON.stringify(this.chunks[chunkKey]));
+    const chunkWithBorders: ChunkData = {
+      x,
+      y,
+      tiles: [...baseChunk.tiles]
+    };
 
-    // Get neighboring chunks
-    const neighbors = [
-      { dx: -1, dy: 0 },  // west
-      { dx: 1, dy: 0 },   // east
-      { dx: 0, dy: -1 },  // north
-      { dx: 0, dy: 1 },   // south
-      { dx: -1, dy: -1 }, // northwest
-      { dx: 1, dy: -1 },  // northeast
-      { dx: -1, dy: 1 },  // southwest
-      { dx: 1, dy: 1 }    // southeast
+    const requestChunkIfMissing = (cx: number, cy: number, mode: string) => {
+      const key = `${cx},${cy}`;
+      if (!this.chunks[key] && !this.pendingChunks.has(key)) {
+        this.pendingChunks.add(key);
+        this.networkAdapter.send({ type: "requestChunk", x: cx, y: cy, mode });
+      }
+      return key;
+    };
+
+    const waitChunk = async (key: string) => {
+      const maxWait = 500;
+      const interval = 50;
+      let elapsed = 0;
+      while (elapsed < maxWait) {
+        if (this.chunks[key]) return this.chunks[key];
+        await new Promise(res => setTimeout(res, interval));
+        elapsed += interval;
+      }
+      return null;
+    };
+
+    // Edge neighbors (W/E = columns, N/S = rows)
+    const edgeDefs = [
+      { dx: -1, dy: 0, mode: 'column', reqX: x - 1, reqY: y }, // west
+      { dx: 1, dy: 0, mode: 'column', reqX: x + 1, reqY: y },  // east
+      { dx: 0, dy: -1, mode: 'row', reqX: x, reqY: y - 1 },    // north
+      { dx: 0, dy: 1, mode: 'row', reqX: x, reqY: y + 1 }      // south
     ];
 
-    for (const neighbor of neighbors) {
-      const neighborKey = `${x + neighbor.dx},${y + neighbor.dy}`;
-      if (this.chunks[neighborKey]) {
-        // Add relevant border tiles from neighbor
-        const neighborChunk = this.chunks[neighborKey];
+    for (const { dx, dy, mode, reqX, reqY } of edgeDefs) {
+      const key = requestChunkIfMissing(reqX, reqY, mode);
+      const neighborChunk = await waitChunk(key);
+
+      if (neighborChunk) {
         for (const tile of neighborChunk.tiles) {
-          // Check if tile is on the edge that borders our chunk
-          const isBorderTile = this.isBorderTile(tile, neighbor.dx, neighbor.dy);
-          if (isBorderTile) {
+          if (this.isBorderTile(tile, dx, dy)) {
             chunkWithBorders.tiles.push({ ...tile });
+          }
+        }
+      } else {
+        console.warn(`Neighbor chunk ${key} not available after waiting.`);
+      }
+    }
+
+    // Diagonals: inferred from row/col tiles (client requests already include diagonal padding)
+    const diagonalDefs = [
+      {
+        dx: -1, dy: -1,
+        cornerKey: `${x - 1},${y - 1}`,
+        requiredKeys: [`${x - 1},${y}`, `${x},${y - 1}`]
+      },
+      {
+        dx: 1, dy: -1,
+        cornerKey: `${x + 1},${y - 1}`,
+        requiredKeys: [`${x + 1},${y}`, `${x},${y - 1}`]
+      },
+      {
+        dx: -1, dy: 1,
+        cornerKey: `${x - 1},${y + 1}`,
+        requiredKeys: [`${x - 1},${y}`, `${x},${y + 1}`]
+      },
+      {
+        dx: 1, dy: 1,
+        cornerKey: `${x + 1},${y + 1}`,
+        requiredKeys: [`${x + 1},${y}`, `${x},${y + 1}`]
+      }
+    ];
+
+    for (const { dx, dy, cornerKey, requiredKeys } of diagonalDefs) {
+      if (requiredKeys.every(k => this.chunks[k])) {
+        const chunk = this.chunks[cornerKey];
+        if (chunk) {
+          for (const tile of chunk.tiles) {
+            if (this.isBorderTile(tile, dx, dy)) {
+              chunkWithBorders.tiles.push({ ...tile });
+            }
           }
         }
       }
@@ -505,24 +582,32 @@ export class GameLogic {
     return chunkWithBorders;
   }
 
+
+
   private isBorderTile(tile: Tile, dx: number, dy: number): boolean {
-    const tileInChunkX = tile.x % CHUNK_SIZE;
-    const tileInChunkY = tile.y % CHUNK_SIZE;
+    const tileChunkX = Math.floor(tile.x / CHUNK_SIZE);
+    const tileChunkY = Math.floor(tile.y / CHUNK_SIZE);
 
-    // West neighbor - need east border tiles
-    if (dx === -1 && tileInChunkX === CHUNK_SIZE - 1) return true;
-    // East neighbor - need west border tiles
-    if (dx === 1 && tileInChunkX === 0) return true;
-    // North neighbor - need south border tiles
-    if (dy === -1 && tileInChunkY === CHUNK_SIZE - 1) return true;
-    // South neighbor - need north border tiles
-    if (dy === 1 && tileInChunkY === 0) return true;
+    // The chunk that owns this tile
+    const targetChunkX = tileChunkX;
+    const targetChunkY = tileChunkY;
 
-    // Diagonal neighbors - need corner tiles
-    if (dx === -1 && dy === -1 && tileInChunkX === CHUNK_SIZE - 1 && tileInChunkY === CHUNK_SIZE - 1) return true;
-    if (dx === 1 && dy === -1 && tileInChunkX === 0 && tileInChunkY === CHUNK_SIZE - 1) return true;
-    if (dx === -1 && dy === 1 && tileInChunkX === CHUNK_SIZE - 1 && tileInChunkY === 0) return true;
-    if (dx === 1 && dy === 1 && tileInChunkX === 0 && tileInChunkY === 0) return true;
+    // Determine the tile's position relative to its chunk
+    const localX = tile.x - (targetChunkX * CHUNK_SIZE);
+    const localY = tile.y - (targetChunkY * CHUNK_SIZE);
+
+    // For a neighbor at dx/dy, we're looking for the edge that touches the base chunk (0,0)
+    // So we want tiles on the edge **facing** (0,0)
+    if (dx === -1 && localX === CHUNK_SIZE - 1) return true; // west neighbor, east edge
+    if (dx === 1 && localX === 0) return true;               // east neighbor, west edge
+    if (dy === -1 && localY === CHUNK_SIZE - 1) return true; // north neighbor, south edge
+    if (dy === 1 && localY === 0) return true;               // south neighbor, north edge
+
+    // Diagonal corners
+    if (dx === -1 && dy === -1 && localX === CHUNK_SIZE - 1 && localY === CHUNK_SIZE - 1) return true;
+    if (dx === 1 && dy === -1 && localX === 0 && localY === CHUNK_SIZE - 1) return true;
+    if (dx === -1 && dy === 1 && localX === CHUNK_SIZE - 1 && localY === 0) return true;
+    if (dx === 1 && dy === 1 && localX === 0 && localY === 0) return true;
 
     return false;
   }

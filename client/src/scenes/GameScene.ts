@@ -4,6 +4,7 @@ import { Biome, ChunkData, Tile } from "../types/types";
 import { ColorCalculations } from "@/logic/ColorCalculations";
 import { TileVariation } from "@/logic/TileVariation";
 import { TileBlending } from "@/logic/TileBlending";
+import { Constraint } from "matter";
 
 
 const DEBUG_MODE = true;
@@ -129,10 +130,11 @@ export class GameScene extends Phaser.Scene {
     this.renderPlayers();
 
     if (DEBUG_MODE) {
-      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}`);
       const chunkX = Math.floor(this.player.x / (CHUNK_SIZE * TILE_SIZE));
       const chunkY = Math.floor(this.player.y / (CHUNK_SIZE * TILE_SIZE));
-      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}, Chunk: (${chunkX}, ${chunkY})`);
+      const tileX = Math.floor(this.player.x / TILE_SIZE);
+      const tileY = Math.floor(this.player.y / TILE_SIZE);
+      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}, Tile: (${tileX}, ${tileY}), Chunk: (${chunkX}, ${chunkY})`);
     }
   }
 
@@ -171,12 +173,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private renderChunk(chunkData: ChunkData) {
+  private async renderChunk(chunkData: ChunkData) {
     const { x: chunkX, y: chunkY } = chunkData;
     const chunkKey = `${chunkX},${chunkY}`;
 
     // Get chunk with border tiles from neighbors
-    const chunkWithBorders = this.gameLogic.getChunkWithBorders(chunkX, chunkY);
+    const chunkWithBorders = await this.gameLogic.getChunkWithBordersAsync(chunkX, chunkY);
     if (!chunkWithBorders) return;
 
     let graphics = this.chunkGraphics.get(chunkKey);

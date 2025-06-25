@@ -29,6 +29,7 @@ const port = process.env.PORT || 15432;
 const REDIS_DB = process.env.REDIS_DB || '3';
 const REDIS_URL = process.env.REDIS_URL || `redis://localhost:6379/${REDIS_DB}`
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://chunkuser:chunkpass@localhost:5432/chunkgame';
+const DEBUG_MODE = process.env.DEBUG_MODE || false;
 
 // Redis clients
 const redis = new Redis(REDIS_URL);
@@ -67,11 +68,24 @@ async function initDatabase() {
       );
       CREATE INDEX IF NOT EXISTS idx_chunks_coords ON chunks(x, y);
     `);
+
+    if (DEBUG_MODE) {
+      // Clear chunks table in debug mode
+      await pgPool.query(`TRUNCATE TABLE chunks;`);
+      console.warn('DEBUG MODE: chunks table truncated');
+
+      // Clear Redis cache
+      await clearRedis('*chunk*');
+      await clearRedis('*player*');
+      console.warn('DEBUG MODE: Redis cache cleared');
+    }
+
     console.log('Database initialized');
   } catch (error) {
     console.error('Database initialization error:', error);
   }
 }
+
 initDatabase();
 
 // Worker pool with load balancing
@@ -173,7 +187,8 @@ async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
       x,
       y,
       tiles: row.tiles,
-      terrain: row.terrain
+      terrain: row.terrain,
+      mode: 'chunk'
     };
   } catch (error) {
     console.error('Database find error:', error);
@@ -206,7 +221,7 @@ async function saveChunkToDB(chunk: ChunkData): Promise<void> {
 }
 
 // Generate chunk using load-balanced worker
-const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> => {
+const generateChunkAsync = (x: number, y: number, mode: string, ws: any): Promise<ChunkData> => {
   return new Promise((resolve, reject) => {
     const requestId = `req_${++requestCounter}`;
     const selectedWorker = selectWorker();
@@ -215,7 +230,7 @@ const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> =
     selectedWorker.load++;
     const startTime = Date.now();
     pendingRequests.set(requestId, { resolve, reject, ws, startTime });
-    selectedWorker.worker.postMessage({ x, y, requestId });
+    selectedWorker.worker.postMessage({ x, y, mode, requestId });
 
     setTimeout(() => {
       if (pendingRequests.has(requestId)) {
@@ -237,6 +252,22 @@ async function updatePlayerPosition(playerId: string, x: number, y: number) {
   } catch (error) {
     console.error('Redis player update error:', error);
   }
+}
+
+async function clearRedis(prefix = 'worker_chunk:') {
+  let cursor = '0';
+  let totalDeleted = 0;
+
+  do {
+    const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 100);
+    cursor = nextCursor;
+    if (keys.length > 0) {
+      await redis.del(...keys);
+      totalDeleted += keys.length;
+    }
+  } while (cursor !== '0');
+
+  console.log(`Deleted ${totalDeleted} Redis keys with prefix "${prefix}"`);
 }
 
 async function getAllPlayers(): Promise<Record<string, { x: number; y: number }>> {
@@ -288,36 +319,47 @@ wss.on("connection", async (ws) => {
 // Message handling with optimized caching
 async function handleMessage(ws: any, message: any, playerId: string) {
   if (message.type === "requestChunk") {
-    const { x, y } = message;
-    if (typeof x !== "number" || typeof y !== "number" || isNaN(x) || isNaN(y)) {
-      ws.send(JSON.stringify({ type: "error", message: "Invalid coordinates" }));
+    const { x, y, mode = "chunk" } = message;
+
+    const validCoords = typeof x === "number" && typeof y === "number" && !isNaN(x) && !isNaN(y);
+    const validMode = mode === "chunk" || mode === "row" || mode === "column";
+
+    if (!validCoords || !validMode) {
+      ws.send(JSON.stringify({ type: "error", message: "Invalid request parameters" }));
       return;
     }
 
     try {
-      // Check Redis cache first
-      let chunk = await getCachedChunk(x, y);
+      let chunk: ChunkData | null = null;
 
-      if (!chunk) {
-        // Check PostgreSQL database
-        chunk = await findChunkInDB(x, y);
+      if (mode === "chunk") {
+        // Check Redis cache first
+        chunk = await getCachedChunk(x, y);
 
-        if (chunk) {
-          // Cache the chunk from database
-          await setCachedChunk(chunk);
-        } else {
-          // Generate chunk using load-balanced worker
-          const generatedChunk = await generateChunkAsync(x, y, ws);
-          await saveChunkToDB(generatedChunk);
-          await setCachedChunk(generatedChunk);
-          chunk = generatedChunk;
+        if (!chunk) {
+          // Check PostgreSQL fallback
+          chunk = await findChunkInDB(x, y);
+
+          if (chunk) {
+            await setCachedChunk(chunk); // cache it in Redis
+          } else {
+            // Generate full chunk with worker
+            const generatedChunk = await generateChunkAsync(x, y, mode, ws);
+            await saveChunkToDB(generatedChunk);
+            await setCachedChunk(generatedChunk);
+            chunk = generatedChunk;
+          }
         }
+      } else {
+        // Directly generate row/column using worker
+        chunk = await await generateChunkAsync(x, y, mode, ws);
       }
 
       const clientChunk = {
         x: chunk.x,
         y: chunk.y,
-        tiles: chunk.tiles
+        tiles: chunk.tiles,
+        mode: chunk.mode,
       };
 
       const chunkResponse = { type: "chunkData", chunk: clientChunk };
@@ -326,8 +368,8 @@ async function handleMessage(ws: any, message: any, playerId: string) {
         if (!err) ws.send(compressed, { binary: true });
       });
     } catch (error) {
-      console.error('Error processing chunk request:', error);
-      ws.send(JSON.stringify({ type: "error", message: "Failed to generate chunk" }));
+      console.error("Error processing chunk request:", error);
+      ws.send(JSON.stringify({ type: "error", message: "Failed to process chunk request" }));
     }
   } else if (message.type === "move") {
     const { x, y } = message;
