@@ -487,7 +487,7 @@ export class GameLogic {
     this.lastChunkCheck = Date.now();
   }
 
-  public async getChunkWithBordersAsync(x: number, y: number): Promise<ChunkData | null> {
+  public async getChunkWithBorders(x: number, y: number): Promise<ChunkData | null> {
     const chunkKey = `${x},${y}`;
     const baseChunk = this.chunks[chunkKey];
       if (!this.chunks[chunkKey]) {
