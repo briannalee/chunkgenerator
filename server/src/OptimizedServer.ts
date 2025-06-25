@@ -68,23 +68,23 @@ async function initDatabase() {
       );
       CREATE INDEX IF NOT EXISTS idx_chunks_coords ON chunks(x, y);
     `);
+
+    if (DEBUG_MODE) {
+      // Clear chunks table in debug mode
+      await pgPool.query(`TRUNCATE TABLE chunks;`);
+      console.warn('DEBUG MODE: chunks table truncated');
+
+      // Clear Redis cache
+      await clearRedis('*chunk*');
+      await clearRedis('*player*');
+      console.warn('DEBUG MODE: Redis cache cleared');
+    }
+
     console.log('Database initialized');
   } catch (error) {
     console.error('Database initialization error:', error);
   }
-
-  if (DEBUG_MODE) {
-    // Clear chunks table in debug mode
-    await pgPool.query(`TRUNCATE TABLE chunks;`);
-    console.warn('DEBUG MODE: chunks table truncated');
-
-    // Clear Redis cache
-    await clearRedis('*chunk*');
-    await clearRedis('*player*');
-    console.warn('DEBUG MODE: Redis cache cleared');
-  }
 }
-initDatabase();
 
 // Worker pool with load balancing
 type PendingRequest = {
