@@ -6,63 +6,12 @@ import {TileNormalizer } from "../src/logic/NormalizeTiles";
 
 // Main test suite for terrain quality
 describe('Tile Normalization Tests', () => {
-  let adapter: INetworkAdapter;
-  let testChunks: any[] = [];
   let tileNormalizer: TileNormalizer;
-
-  // Define hardcoded test chunk coordinates for coverage of various map areas
-  let chunkCoordinates = [
-    { x: 0, y: 0 },   // Origin
-    { x: 5, y: 5 },   // Distant chunk
-    { x: -3, y: 2 },  // Negative coordinates
-    { x: 10, y: -7 }, // Mixed coordinates
-    { x: 0, y: 15 }   // Far chunk
-  ];
-
-  // Randomly generated chunk coordinates for additional coverage
-  for (let i = 0; i < 5; i++) {
-    chunkCoordinates.push({
-      x: Math.floor(Math.random() * 5000) - 2500,
-      y: Math.floor(Math.random() * 5000) - 2500
-    });
-  }
 
   // Setup: connect to the network and load test chunks before running tests
   beforeAll(async () => {
-    adapter = NetworkFactory.createAdapter();
-    await adapter.connect();
     tileNormalizer = new TileNormalizer();
-
-    // Wait for connection confirmation from server
-    await new Promise(resolve => {
-      adapter.onMessage((data: any) => data.type === 'connected' && resolve(true));
-    });
-
-    // Load multiple chunks for testing
-    for (const coord of chunkCoordinates) {
-      const chunk = await new Promise(resolve => {
-        adapter.onMessage((data: any) => {
-          if (data.type === 'chunkData') {
-            // Normalize tiles when received
-            data.chunk.tiles = tileNormalizer.NormalizeTiles(data.chunk.tiles);
-            resolve(data);
-          }
-        });
-        adapter.send({ type: 'requestChunk', x: coord.x, y: coord.y });
-      });
-      testChunks.push(chunk);
-
-      // Small delay between requests to avoid overwhelming the server
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
   }, 30000);
-
-  // Cleanup: disconnect after all tests
-  afterAll(async () => {
-    await adapter.disconnect();
-  });
-
 
   describe('Tile Normalization', () => {
     it('should correctly normalize land tiles from array format', () => {

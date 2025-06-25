@@ -4,22 +4,6 @@ import { NetworkFactory } from "../src/network/NetworkFactory";
 import { WaterType, Biome, SoilType, LandTile, WaterTile, BaseTile, VegetationType, ColorIndex } from "../src/types/types";
 import {TileNormalizer } from "../src/logic/NormalizeTiles";
 
-/**
- *  Get adjacent tiles for a given tile.
- *  This function finds all tiles that are adjacent (including diagonals) to the specified tile
- *  @param tile - The tile to find adjacent tiles for.
- *  @param tiles - The array of all tiles to search within.
- *  @returns An array of adjacent tiles.
- */
-const getAdjacentTiles = (tile: any, tiles: any[]) => {
-  return tiles.filter(t =>
-    Math.abs(t.x - tile.x) <= 1 &&
-    Math.abs(t.y - tile.y) <= 1 &&
-    !(t.x === tile.x && t.y === tile.y)
-  );
-};
-
-
 // Main test suite for terrain quality
 describe('River Quality Tests', () => {
   let adapter: INetworkAdapter;
