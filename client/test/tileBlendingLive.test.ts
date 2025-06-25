@@ -12,6 +12,7 @@ describe("Tile Blending Live", () => {
 
   let testChunks: any[] = [];
   let gameLogic: GameLogic;
+  let adapter: INetworkAdapter;
 
   // Define hardcoded test chunk coordinates for coverage of various map areas
   let chunkCoordinates = [
@@ -237,6 +238,41 @@ describe("Tile Blending Live", () => {
         }
       });
     });
+  });
+
+  it("should respond to legacy requestChunk (no mode) calls", async () => {
+    adapter = NetworkFactory.createAdapter();
+    await adapter.connect();
+
+    // Wait for connection confirmation from server
+    await new Promise(resolve => {
+      adapter.onMessage((data: any) => data.type === 'connected' && resolve(true));
+    });
+
+    for (let i = 0; i < 3; i++) {
+      const testCoord = { x: 20 + i, y: 20 + i };
+
+      const chunk = await new Promise<{ chunk: { tiles: any[] } }>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Chunk ${i + 1} at (${testCoord.x}, ${testCoord.y}) took too long (>8s)`));
+        }, 8000);
+
+        adapter.onMessage((data: any) => {
+          if (data.type === 'chunkData' && data.chunk.x === testCoord.x && data.chunk.y === testCoord.y) {
+            clearTimeout(timeout);
+            resolve(data);
+          }
+        });
+
+        adapter.send({ type: 'requestChunk', x: testCoord.x, y: testCoord.y });
+      });
+
+      expect(chunk).toBeDefined();
+      expect(chunk.chunk.tiles).toBeDefined();
+      expect(chunk.chunk.tiles.length).toBeGreaterThan(0);
+
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
   });
 });
 
