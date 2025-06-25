@@ -23,43 +23,24 @@ describe('WebSocket Network Adapter Tests', () => {
     expect(adapter.readyState.toLowerCase()).toBe('open');
   }, TEST_TIMEOUT);
 
-  it('should receive "handshook" message after handshake', async () => {
-    // connect
-    const response = await new Promise((resolve) => {
-      adapter.onMessage(data => resolve(data));
-    });
+  it('should receive "connected" message after handshake', async () => {
+    await adapter.connect();
+    const response = await waitForMessage(adapter, 'connected');
     expect(response).toMatchObject({
       type: 'connected',
       id: expect.any(String),
     });
+  });
 
-    // send handshake message
+  it('should receive "handshook" message', async () => {
     adapter.send({ type: 'handshake' });
-    const handshakeResponse = await new Promise((resolve) => {
-      const handler = (data: any) => {
-        if (data.type === 'handshook') {
-          adapter.onMessage(handler); // Remove this specific handler
-          resolve(data);
-        }
-        // Other messages are ignored
-      };
-      adapter.onMessage(handler);
-    });
-    expect(handshakeResponse).toMatchObject({
-      type: 'handshook',
-    });
-  }, TEST_TIMEOUT);
+    const handshakeResponse = await waitForMessage(adapter, 'handshook');
+    expect(handshakeResponse).toMatchObject({ type: 'handshook' });
+  });
 
   it('should request and receive chunk data', async () => {
-    const response = await new Promise(resolve => {
-      adapter.onMessage((data: unknown) => {
-        if (typeof data === 'object' && data !== null && 'type' in data && (data as any).type === 'chunkData') {
-          resolve(data);
-        }
-      });
-      adapter.send({ type: 'requestChunk', x: 0, y: 0 }); // Request test chunk
-    });
-
+    adapter.send({ type: 'requestChunk', x: 0, y: 0 });
+    const response = await waitForMessage(adapter, 'chunkData');
     expect(response).toMatchObject({
       type: 'chunkData',
       chunk: {
@@ -68,7 +49,26 @@ describe('WebSocket Network Adapter Tests', () => {
         tiles: expect.any(Array)
       }
     });
-  }, TEST_TIMEOUT);
+  });
 });
 
+function waitForMessage<T = any>(
+  adapter: INetworkAdapter,
+  type: string,
+  timeout = 5000
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const handler = (data: any) => {
+      if (data?.type === type) {
+        adapter.offMessage?.(handler);
+        resolve(data);
+      }
+    };
+    adapter.onMessage(handler);
 
+    setTimeout(() => {
+      adapter.offMessage?.(handler);
+      reject(new Error(`Timed out waiting for message of type "${type}"`));
+    }, timeout);
+  });
+}

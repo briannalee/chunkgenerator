@@ -3,10 +3,10 @@ import pako from 'pako';
 
 export class WebSocketAdapter implements INetworkAdapter {
   private socket: WebSocket | null = null;
-  private messageCallback: ((data: unknown) => void) | null = null;
+  private messageCallbacks = new Set<(data: unknown) => void>();
   private disconnectCallback: (() => void) | null = null;
   readyState: "connecting" | "open" | "closing" | "closed" = "closed";
-  constructor(private url: string) {}
+  constructor(private url: string) { }
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -19,19 +19,19 @@ export class WebSocketAdapter implements INetworkAdapter {
         this.readyState = "open";
         resolve();
       };
-      
+
       this.socket.onerror = (error) => {
         this.readyState = "closed";
         reject(error);
       };
-      
+
       this.socket.onclose = () => {
         this.readyState = "closed";
         if (this.disconnectCallback) {
           this.disconnectCallback();
         }
       };
-      
+
       this.socket.onmessage = (event) => {
         try {
           let data;
@@ -41,8 +41,9 @@ export class WebSocketAdapter implements INetworkAdapter {
           } else {
             data = JSON.parse(event.data);
           }
-          if (this.messageCallback) {
-            this.messageCallback(data);
+
+          for (const cb of this.messageCallbacks) {
+            cb(data);
           }
         } catch (error) {
           console.error("Error parsing WebSocket message:", error);
@@ -66,7 +67,11 @@ export class WebSocketAdapter implements INetworkAdapter {
   }
 
   onMessage(callback: (data: unknown) => void): void {
-    this.messageCallback = callback;
+    this.messageCallbacks.add(callback);
+  }
+
+  offMessage(callback: (data: unknown) => void): void {
+    this.messageCallbacks.delete(callback);
   }
 
   onDisconnect(callback: () => void): void {
