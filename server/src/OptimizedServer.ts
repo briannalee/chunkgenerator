@@ -72,6 +72,17 @@ async function initDatabase() {
   } catch (error) {
     console.error('Database initialization error:', error);
   }
+
+  if (DEBUG_MODE) {
+    // Clear chunks table in debug mode
+    await pgPool.query(`TRUNCATE TABLE chunks;`);
+    console.warn('DEBUG MODE: chunks table truncated');
+
+    // Clear Redis cache
+    await clearRedis('*chunk*');
+    await clearRedis('*player*');
+    console.warn('DEBUG MODE: Redis cache cleared');
+  }
 }
 initDatabase();
 
