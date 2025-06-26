@@ -19,7 +19,7 @@ describe("Tile Blending Live", () => {
     { x: -3, y: 2 },  // Negative coordinates
     { x: 10, y: -7 }, // Mixed coordinates
     { x: 0, y: 15 },   // Far chunk
-    {x: -2191, y: -132}, // Chunk with known diagonal blending requirements
+    { x: -2191, y: -132 }, // Chunk with known diagonal blending requirements
   ];
 
   //Randomly generated chunk coordinates for additional coverage
@@ -59,6 +59,22 @@ describe("Tile Blending Live", () => {
   // Cleanup: disconnect after all tests
   afterAll(async () => {
     await gameLogic.disconnect();
+  });
+
+  // Test 0: Ensures getChunkWithBorders returns at least 144 tiles (10x10 core + 1 tile border)
+  it("should load at least 144 tiles with getChunkWithBorders", async () => {
+    for (const { chunk } of testChunks) {
+      const chunkWithBorders = await gameLogic.getChunkWithBorders(chunk.x, chunk.y);
+      expect(chunkWithBorders).toBeDefined();
+
+      if (!chunkWithBorders) continue;
+      const tileCount = chunkWithBorders.tiles.length;
+      if (tileCount < 144) {
+        console.warn(`Chunk (${chunk.x}, ${chunk.y}) returned only ${tileCount} tiles`);
+      }
+
+      expect(tileCount).toBeGreaterThanOrEqual(144);
+    }
   });
 
   // Test 1: Checks that tiles are only marked as blendable if they have at least one neighbor with a different biome that is blendable.
