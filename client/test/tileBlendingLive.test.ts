@@ -82,8 +82,12 @@ describe("Tile Blending Live", () => {
     testChunks.forEach((chunkData) => {
       const tiles = chunkData.chunk.tiles;
 
-      tiles.forEach((tile: any) => {
+      expect(tiles).toBeDefined();
+      expect(Array.isArray(tiles)).toBe(true);
+      expect(tiles.length).toBeGreaterThan(0);  
 
+      // Iterate through each tile in the chunk
+      tiles.forEach((tile: any) => {
         const neighbors = getAdjacentTiles(tile, tiles);
         const neighborMap = {
           north: neighbors.north,
@@ -96,6 +100,7 @@ describe("Tile Blending Live", () => {
           southwest: neighbors.southwest,
         };
 
+        // Check if the tile should blend with its neighbors
         const shouldBlend = TileBlending.shouldBlendWithNeighbors(tile, neighborMap);
         const hasDifferentBiomeNeighbor = Object.values(neighborMap)
           .filter(n => n)
@@ -114,6 +119,12 @@ describe("Tile Blending Live", () => {
       expect(chunkWithBorders).toBeDefined();
       if (!chunkWithBorders) continue;
 
+      // Ensure the chunk has tiles with borders
+      expect(chunkWithBorders.tiles).toBeDefined();
+      expect(Array.isArray(chunkWithBorders.tiles)).toBe(true);
+      expect(chunkWithBorders.tiles.length).toBeGreaterThan(0);
+
+      // Iterate through each tile in the chunk
       const { tiles } = chunkWithBorders;
       tiles.forEach((tile: any) => {
         const neighbors = getAdjacentTiles(tile, tiles);
@@ -168,11 +179,17 @@ describe("Tile Blending Live", () => {
       const edgeThreshold = 2;
       const subTilesPerSide = 8;
 
+      // Ensure the chunk has tiles
+      expect(tiles).toBeDefined();
+      expect(Array.isArray(tiles)).toBe(true);
+      expect(tiles.length).toBeGreaterThan(0);  
+
+      // Iterate through each tile in the chunk
       tiles.forEach((tile: any) => {
-
         const { localX, localY } = getLocalTileCoords(tile, chunkData.chunk.x, chunkData.chunk.y);
-        if (localX < 1 || localX > 8 || localY < 1 || localY > 8) return; // skip edges and borders
+        if (localX < 1 || localX > 8 || localY < 1 || localY > 8) return; // skip edges and borders, only test inner tiles
 
+        // Get neighbors for the tile
         const neighbors = getAdjacentTiles(tile, tiles);
         const neighborMap = {
           north: neighbors.north,
@@ -184,10 +201,18 @@ describe("Tile Blending Live", () => {
           southeast: neighbors.southeast,
           southwest: neighbors.southwest,
         };
+
+        // Check if the tile should blend with its neighbors
         const baseColor = tile.c;
         const shouldBlend = TileBlending.shouldBlendWithNeighbors(tile, neighborMap);
-        // Sample points: corners, edges, and center of the tile's sub-tile grid
-        // Sample points: corners, edges, and center of the tile's sub-tile grid
+        if (!shouldBlend) {
+          // If blending is not expected, the color must match the base color
+          const blendedColor = TileBlending.calculateBlendedColor(tile, neighborMap, tile.x, tile.y, subTilesPerSide, baseColor);
+          expect(blendedColor).toBe(baseColor);
+          return; // Skip further checks for this tile
+        }
+
+        // Sample points inside tile: corners, edges, and center of the tile's sub-tile grid
         const samplePoints = [
           { sx: 0, sy: 0 },
           { sx: 4, sy: 0 },
@@ -228,6 +253,7 @@ describe("Tile Blending Live", () => {
       adapter.onMessage((data: any) => data.type === 'connected' && resolve(true));
     });
 
+    // Request multiple chunks without specifying mode
     for (let i = 0; i < 3; i++) {
       const testCoord = { x: 20 + i, y: 20 + i };
 
@@ -236,6 +262,7 @@ describe("Tile Blending Live", () => {
           reject(new Error(`Chunk ${i + 1} at (${testCoord.x}, ${testCoord.y}) took too long (>8s)`));
         }, 8000);
 
+        // Listen for chunk data response
         adapter.onMessage((data: any) => {
           if (data.type === 'chunkData' && data.chunk.x === testCoord.x && data.chunk.y === testCoord.y) {
             clearTimeout(timeout);
@@ -262,6 +289,8 @@ describe("Tile Blending Live", () => {
  * @returns An object mapping direction names to neighboring tiles, or `undefined` if not present.
  */
 function getAdjacentTiles(tile: { x: number; y: number }, tiles: Array<{ x: number; y: number }>) {
+
+  // Map to hold neighboring tiles
   const neighbors: Record<
     'north' | 'south' | 'east' | 'west' | 'northeast' | 'northwest' | 'southeast' | 'southwest',
     any | undefined
@@ -276,11 +305,13 @@ function getAdjacentTiles(tile: { x: number; y: number }, tiles: Array<{ x: numb
     southwest: undefined
   };
 
+  // Create a position map for quick lookup
   const posMap = new Map<string, any>();
   for (const t of tiles) {
     posMap.set(`${t.x},${t.y}`, t);
   }
 
+  // Offsets for each direction
   const offsets = {
     north: [0, -1],
     south: [0, 1],
@@ -292,6 +323,7 @@ function getAdjacentTiles(tile: { x: number; y: number }, tiles: Array<{ x: numb
     southwest: [-1, 1]
   };
 
+  // Check each direction and find the corresponding neighbor
   for (const dir in offsets) {
     const [dx, dy] = offsets[dir as keyof typeof offsets];
     const neighbor = posMap.get(`${tile.x + dx},${tile.y + dy}`);
