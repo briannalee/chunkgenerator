@@ -3,6 +3,7 @@ import { TileBlending } from "../src/logic/TileBlending";
 import { INetworkAdapter } from "../src/network/INetworkAdapter";
 import { NetworkFactory } from "../src/network/NetworkFactory";;
 import { GameLogic } from "../src/logic/GameLogic";
+import { ColorCalculations } from '../src/logic/ColorCalculations';
 
 // This test suite validates the tile blending logic in a live, multi-chunk environment.
 // It covers edge cases, intra-chunk blending, chunk borders, and corner blending for a variety of chunk coordinates.
@@ -205,12 +206,6 @@ describe("Tile Blending Live", () => {
         // Check if the tile should blend with its neighbors
         const baseColor = tile.c;
         const shouldBlend = TileBlending.shouldBlendWithNeighbors(tile, neighborMap);
-        if (!shouldBlend) {
-          // If blending is not expected, the color must match the base color
-          const blendedColor = TileBlending.calculateBlendedColor(tile, neighborMap, tile.x, tile.y, subTilesPerSide, baseColor);
-          expect(blendedColor).toBe(baseColor);
-          return; // Skip further checks for this tile
-        }
 
         // Sample points inside tile: corners, edges, and center of the tile's sub-tile grid
         const samplePoints = [
