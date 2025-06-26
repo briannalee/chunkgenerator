@@ -85,10 +85,11 @@ describe("Tile Blending Live", () => {
 
       expect(tiles).toBeDefined();
       expect(Array.isArray(tiles)).toBe(true);
-      expect(tiles.length).toBeGreaterThan(0);  
+      expect(tiles.length).toBeGreaterThan(0);
 
       // Iterate through each tile in the chunk
       tiles.forEach((tile: any) => {
+
         const neighbors = getAdjacentTiles(tile, tiles);
         const neighborMap = {
           north: neighbors.north,
@@ -100,6 +101,13 @@ describe("Tile Blending Live", () => {
           southeast: neighbors.southeast,
           southwest: neighbors.southwest,
         };
+
+        expect(neighborMap).toBeDefined();
+        expect(Object.keys(neighborMap).length).toBe(8); // Ensure all directions are present
+        expect(Object.values(neighborMap).every(n => n === undefined || (n.x !== undefined && n.y !== undefined))).toBe(true);
+        // We allow some undefined neighbors, but not all should be undefined
+        // Because in this test, we are not checking for edge tile blending
+        expect(Object.values(neighborMap).some(n => n !== undefined)).toBe(true);
 
         // Check if the tile should blend with its neighbors
         const shouldBlend = TileBlending.shouldBlendWithNeighbors(tile, neighborMap);
@@ -119,6 +127,9 @@ describe("Tile Blending Live", () => {
       const chunkWithBorders = await gameLogic.getChunkWithBorders(chunkData.chunk.x, chunkData.chunk.y);
       expect(chunkWithBorders).toBeDefined();
       if (!chunkWithBorders) continue;
+      expect(chunkWithBorders.tiles).toBeDefined();
+      expect(Array.isArray(chunkWithBorders.tiles)).toBe(true);
+      expect(chunkWithBorders.tiles.length).toBeGreaterThan(0);
 
       // Ensure the chunk has tiles with borders
       expect(chunkWithBorders.tiles).toBeDefined();
@@ -144,6 +155,11 @@ describe("Tile Blending Live", () => {
 
         if (localX < 0 || localX > 9 || localY < 0 || localY > 9) return; // filter out border padding
         if (localX !== 0 && localX !== 9 && localY !== 0 && localY !== 9) return; // only true edge
+
+        expect(neighborMap).toBeDefined();
+        expect(Object.keys(neighborMap).length).toBe(8); // Ensure all directions are present
+        expect(Object.values(neighborMap).every(n => n === undefined || (n.x !== undefined && n.y !== undefined))).toBe(true);
+        expect(Object.values(neighborMap).every(n => n !== undefined)).toBe(true);
 
         const baseColor = tile.c;
         const blendedColor = TileBlending.calculateBlendedColor(tile, neighborMap, tile.x, tile.y, 8, baseColor);
@@ -177,13 +193,11 @@ describe("Tile Blending Live", () => {
   it("should blend intra-chunk tiles with different blendable neighbors", () => {
     testChunks.forEach((chunkData) => {
       const tiles = chunkData.chunk.tiles;
-      const edgeThreshold = 2;
-      const subTilesPerSide = 8;
 
       // Ensure the chunk has tiles
       expect(tiles).toBeDefined();
       expect(Array.isArray(tiles)).toBe(true);
-      expect(tiles.length).toBeGreaterThan(0);  
+      expect(tiles.length).toBeGreaterThan(0);
 
       // Iterate through each tile in the chunk
       tiles.forEach((tile: any) => {
@@ -202,6 +216,10 @@ describe("Tile Blending Live", () => {
           southeast: neighbors.southeast,
           southwest: neighbors.southwest,
         };
+
+        expect(neighborMap).toBeDefined();
+        expect(Object.keys(neighborMap).length).toBe(8); // Ensure all directions are present
+        expect(Object.values(neighborMap).every(n => n === undefined || (n.x !== undefined && n.y !== undefined))).toBe(true);
 
         // Check if the tile should blend with its neighbors
         const baseColor = tile.c;
