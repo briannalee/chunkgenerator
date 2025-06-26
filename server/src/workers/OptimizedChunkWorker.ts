@@ -38,14 +38,19 @@ const generateTerrainUnit = async (
   let cacheKey: string;
   let localKey: string;
 
-  if (mode === 'chunk') {
-    cacheKey = `worker_chunk:${x}:${y}`;
-    localKey = `${x},${y}`;
-  } else {
-    const dir = mode === 'row' ? 'row' : 'col';
-    cacheKey = `worker_line:${dir}:${x}:${y}`;
-    localKey = `${dir}:${x}:${y}`;
-  }
+if (mode === 'chunk') {
+  cacheKey = `worker_chunk:${x}:${y}`;
+  localKey = `${x},${y}`;
+} else if (mode === 'row' || mode === 'column') {
+  const dir = mode === 'row' ? 'row' : 'col';
+  cacheKey = `worker_line:${dir}:${x}:${y}`;
+  localKey = `${x},${y}`;
+} else if (mode === 'point') {
+  cacheKey = `worker_point:${x}:${y}`;
+  localKey = `${x},${y}`;
+} else {
+  throw new Error(`Unsupported RequestMode: ${mode}`);
+}
 
   // Check local in-memory cache first
   if (localCache.has(localKey)) {

@@ -129,7 +129,7 @@ export class GameLogic {
         this.processChunkData(chunkData);
         this.loadedChunks.add(chunkKey);
         this.checkPendingChunks();
-      } else if (mode === "row" || mode === "column") {
+      } else if (mode === "row" || mode === "column" || mode === "point") {
         // Border data - store in border cache using world coordinates as key
         // The server sends world coordinates, so use them directly
         const worldKey = `${x},${y}`;
@@ -629,7 +629,7 @@ export class GameLogic {
     }
 
     const cornerPromises = cornerDefs.map(({ dx, dy, worldX, worldY, chunkKey, borderKey }) => {
-      const keys = requestBorderIfMissing(chunkKey, borderKey, worldX, worldY, 'row'); // use 'row' or 'column' arbitrarily
+      const keys = requestBorderIfMissing(chunkKey, borderKey, worldX, worldY, 'point');
       return waitForBorderData(keys.chunkKey, keys.borderKey)
         .then((neighborChunk) => ({ neighborChunk, dx, dy }));
     });

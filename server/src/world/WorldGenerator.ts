@@ -93,6 +93,25 @@ export class WorldGenerator {
     return terrainLine;
   }
 
+  generateTerrainPoint(
+    worldX: number,
+    worldY: number
+  ): TerrainPoint {
+    // Prepare coordinate array with just one point
+    const coordinates = [{ x: 0, y: 0, worldX, worldY }];
+
+    // Generate height and climate data for the single point
+    this.batchGenerateHeights(coordinates, 1);
+    this.batchGenerateClimate(coordinates);
+
+    // Generate and return the terrain point
+    const terrainPoint = this.generateTerrainPointFast(worldX, worldY);
+
+    this.manageCacheSize(); // Optional: manage cache if needed
+
+    return terrainPoint;
+  }
+
   private cacheHeight(x: number, y: number, height: number): void {
     this.heightCache.set(`${x},${y}`, height);
   }

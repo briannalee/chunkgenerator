@@ -322,7 +322,7 @@ async function handleMessage(ws: any, message: any, playerId: string) {
     const { x, y, mode = "chunk" } = message;
 
     const validCoords = typeof x === "number" && typeof y === "number" && !isNaN(x) && !isNaN(y);
-    const validMode = mode === "chunk" || mode === "row" || mode === "column";
+    const validMode = mode === "chunk" || mode === "row" || mode === "column" || mode === "point";
 
     if (!validCoords || !validMode) {
       ws.send(JSON.stringify({ type: "error", message: "Invalid request parameters" }));
