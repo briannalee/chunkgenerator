@@ -91,7 +91,7 @@ export class GameLogic {
 
   private handleNetworkMessage(data: unknown) {
     const message = data as any;
-
+    
     if (message.type === "chunkData") {
       let { x, y, tiles } = message.chunk;
       const chunkKey = `${x},${y}`;

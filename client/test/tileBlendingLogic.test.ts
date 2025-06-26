@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TileBlending } from "../src/logic/TileBlending";
 import { ColorCalculations } from "../src/logic/ColorCalculations";
-import { INetworkAdapter } from "../src/network/INetworkAdapter";
-import { NetworkFactory } from "../src/network/NetworkFactory";;
-import { TileNormalizer } from "../src/logic/NormalizeTiles";
-import { GameLogic } from "../src/logic/GameLogic";
+import { ColorIndex, Tile } from '../src/types/types';
 
 describe("TileBlending", () => {
 
@@ -100,6 +97,82 @@ describe("TileBlending", () => {
       expect(color).toBe(neighborColor);
 
       vi.restoreAllMocks();
+    });
+
+    it("should blend based on diagonal neighbors if biome differs - manual chunks", () => {
+      // Define the center tile (e.g. bottom-right corner of a chunk)
+      const tile: Tile = {
+        x: 9,
+        y: 9,
+        h: 0.3,
+        nH: 0.4,
+        t: 0,
+        p: 0.2,
+        stp: 0.1,
+        b: 1, // biome 1
+        c: ColorIndex.GRASSLAND, // base color
+        iC: false,
+        w: false,
+        v: 0,
+        vT: 0,
+        sT: 0
+      };
+
+      // Define diagonal neighbors with different biomes
+      const neighborMap = {
+        north: null,
+        south: null,
+        east: null,
+        west: null,
+        // Diagonal neighbors
+        northwest: {
+          ...tile,
+          x: 8,
+          y: 8,
+          b: 2, // different biome
+          c: ColorIndex.BEACH,
+        },
+        northeast: {
+          ...tile,
+          x: 10,
+          y: 8,
+          b: 3,
+          c: ColorIndex.FOREST
+        },
+        southwest: {
+          ...tile,
+          x: 8,
+          y: 10,
+          b: 4,
+          c: ColorIndex.DESERT
+        },
+        southeast: {
+          ...tile,
+          x: 10,
+          y: 10,
+          b: 5,
+          c: ColorIndex.JUNGLE
+        },
+      };
+
+      const baseColor = tile.c;
+
+      // Simulate corner blending with distance to edge
+      const sx = 7; // near edge in sub-tile space
+      const sy = 7;
+      const subTilesPerSide = 8;
+
+      const blendedColor = TileBlending.calculateBlendedColor(
+        tile,
+        neighborMap,
+        sx,
+        sy,
+        subTilesPerSide,
+        baseColor
+      );
+
+      // Must be different if diagonal blending is working
+      expect(blendedColor).not.toBe(baseColor);
     });
   });
 });

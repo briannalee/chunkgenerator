@@ -1,12 +1,12 @@
 import Phaser from "phaser";
 import { CHUNK_SIZE, GameLogic, TILE_SIZE } from "../logic/GameLogic";
 import { Biome, ChunkData, Tile } from "../types/types";
-import { ColorCalculations } from "../logic/ColorCalculations";
-import { TileVariation } from "../logic/TileVariation";
-import { TileBlending } from "../logic/TileBlending";
+import { ColorCalculations } from "@/logic/ColorCalculations";
+import { TileVariation } from "@/logic/TileVariation";
+import { TileBlending } from "@/logic/TileBlending";
 
 
-const DEBUG_MODE = true;
+const DEBUG_MODE = true; 
 
 
 export class GameScene extends Phaser.Scene {
@@ -90,7 +90,7 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number) {
     this.gameLogic.updateFrameTime(delta);
 
-    const speed = 10;
+    const speed = 5;
     const prevX = this.player.x;
     const prevY = this.player.y;
 
@@ -200,11 +200,25 @@ export class GameScene extends Phaser.Scene {
     chunkTiles.forEach((tile) => {
       this.renderDetailedTile(graphics, tile, tileMap, chunkData);
     });
+
+    // Draw border around chunk if debugging is enabled
+    if (DEBUG_MODE) {
+      // Calculate top-left corner of the chunk in pixels
+      const startX = chunkX * CHUNK_SIZE * TILE_SIZE;
+      const startY = chunkY * CHUNK_SIZE * TILE_SIZE;
+
+      graphics.lineStyle(2, 0xff0000, 1); // red border, thickness 2
+
+      // Draw rectangle border around chunk
+      graphics.strokeRect(startX, startY, CHUNK_SIZE * TILE_SIZE, CHUNK_SIZE * TILE_SIZE);
+    }
   }
 
   private renderDetailedTile(graphics: Phaser.GameObjects.Graphics, tile: Tile, tileMap: Map<string, Tile>, chunkData: ChunkData) {
-    const tileWorldX = chunkData.x + tile.x * TILE_SIZE;
-    const tileWorldY = chunkData.y + tile.y * TILE_SIZE;
+
+    const tileWorldX = tile.x * TILE_SIZE;
+    const tileWorldY = tile.y * TILE_SIZE;
+
     const color = ColorCalculations.getTileColor(tile);
 
     // Render base tile with smooth biome transitions

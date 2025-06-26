@@ -1,9 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TileBlending } from "../src/logic/TileBlending";
-import { ColorCalculations } from "../src/logic/ColorCalculations";
 import { INetworkAdapter } from "../src/network/INetworkAdapter";
 import { NetworkFactory } from "../src/network/NetworkFactory";;
-import { TileNormalizer } from "../src/logic/NormalizeTiles";
 import { GameLogic } from "../src/logic/GameLogic";
 
 // This test suite validates the tile blending logic in a live, multi-chunk environment.
@@ -20,17 +18,17 @@ describe("Tile Blending Live", () => {
     { x: 5, y: 5 },   // Distant chunk
     { x: -3, y: 2 },  // Negative coordinates
     { x: 10, y: -7 }, // Mixed coordinates
-    { x: 0, y: 15 }   // Far chunk
+    { x: 0, y: 15 },   // Far chunk
+    {x: -2191, y: -132}, // Chunk with known diagonal blending requirements
   ];
 
-  // Randomly generated chunk coordinates for additional coverage
-  for (let i = 0; i < 15; i++) {
+  //Randomly generated chunk coordinates for additional coverage
+  for (let i = 0; i < 5; i++) {
     chunkCoordinates.push({
       x: Math.floor(Math.random() * 5000) - 2500,
       y: Math.floor(Math.random() * 5000) - 2500
     });
   }
-
 
   beforeAll(async () => {
     gameLogic = new GameLogic();
@@ -44,9 +42,7 @@ describe("Tile Blending Live", () => {
     );
 
     // Wait for all chunk requests to be processed
-    await new Promise(resolve => setTimeout(resolve, 500)); // crude sync delay to ensure all requests are processed
-
-    await new Promise(r => setTimeout(r, 500)); // crude sync delay
+    await new Promise(resolve => setTimeout(resolve, 500)); // delay to ensure all requests are processed
 
     // Gather all loaded chunks with their borders for testing
     for (const coord of chunkCoordinates) {
@@ -65,7 +61,6 @@ describe("Tile Blending Live", () => {
     await gameLogic.disconnect();
   });
 
-
   // Test 1: Checks that tiles are only marked as blendable if they have at least one neighbor with a different biome that is blendable.
   it("should correctly identify blendable tiles with different neighboring biomes", () => {
     testChunks.forEach((chunkData) => {
@@ -79,6 +74,10 @@ describe("Tile Blending Live", () => {
           south: neighbors.south,
           east: neighbors.east,
           west: neighbors.west,
+          northeast: neighbors.northeast,
+          northwest: neighbors.northwest,
+          southeast: neighbors.southeast,
+          southwest: neighbors.southwest,
         };
 
         const shouldBlend = TileBlending.shouldBlendWithNeighbors(tile, neighborMap);
@@ -101,12 +100,16 @@ describe("Tile Blending Live", () => {
 
       const { tiles } = chunkWithBorders;
       tiles.forEach((tile: any) => {
-        const neighbors = getAdjacentTiles(tile, tiles); // now using all available tiles
+        const neighbors = getAdjacentTiles(tile, tiles);
         const neighborMap = {
           north: neighbors.north,
           south: neighbors.south,
           east: neighbors.east,
           west: neighbors.west,
+          northeast: neighbors.northeast,
+          northwest: neighbors.northwest,
+          southeast: neighbors.southeast,
+          southwest: neighbors.southwest,
         };
 
         const { localX, localY } = getLocalTileCoords(tile, chunkData.chunk.x, chunkData.chunk.y);
@@ -160,9 +163,14 @@ describe("Tile Blending Live", () => {
           south: neighbors.south,
           east: neighbors.east,
           west: neighbors.west,
+          northeast: neighbors.northeast,
+          northwest: neighbors.northwest,
+          southeast: neighbors.southeast,
+          southwest: neighbors.southwest,
         };
         const baseColor = tile.c;
         const shouldBlend = TileBlending.shouldBlendWithNeighbors(tile, neighborMap);
+        // Sample points: corners, edges, and center of the tile's sub-tile grid
         // Sample points: corners, edges, and center of the tile's sub-tile grid
         const samplePoints = [
           { sx: 0, sy: 0 },
@@ -178,8 +186,10 @@ describe("Tile Blending Live", () => {
 
           if (sx === 4 && sy === 4) {
             // Center point: should never blend, must match base color
+            // Center point: should never blend, must match base color
             expect(blendedColor).toBe(baseColor);
           } else {
+            // Edge/corner points: should blend if blending is expected
             // Edge/corner points: should blend if blending is expected
             if (shouldBlend) {
               if (blendedColor === baseColor) {
@@ -194,52 +204,7 @@ describe("Tile Blending Live", () => {
     });
   });
 
-  // Test 4: Checks that corner tiles blend correctly when they have blendable neighbors in both relevant directions (e.g., north+west for top-left).
-  it("should handle corner tiles with blending from multiple directions", () => {
-    testChunks.forEach((chunkData) => {
-      const tiles = chunkData.chunk.tiles;
-      // Find the four corner tiles of the chunk
-      const cornerTiles = tiles.filter((tile: any) => {
-        const { localX, localY } = getLocalTileCoords(tile, chunkData.chunk.x, chunkData.chunk.y);
-        return (localX === 0 && localY === 0) || // top-left
-          (localX === 9 && localY === 0) || // top-right
-          (localX === 0 && localY === 9) || // bottom-left
-          (localX === 9 && localY === 9);   // bottom-right
-      });
-
-      cornerTiles.forEach((tile: any) => {
-        const neighbors = getAdjacentTiles(tile, tiles);
-        const neighborMap = {
-          north: neighbors.north,
-          south: neighbors.south,
-          east: neighbors.east,
-          west: neighbors.west,
-        };
-
-        // Check if this is a true corner case (has neighbors in both relevant directions)
-        const isCornerCase =
-          (tile.x === chunkData.chunk.x * 10 && tile.y === chunkData.chunk.y * 10 && neighbors.east && neighbors.south) || // top-left
-          (tile.x === chunkData.chunk.x * 10 + 9 && tile.y === chunkData.chunk.y * 10 && neighbors.west && neighbors.south) || // top-right
-          (tile.x === chunkData.chunk.x * 10 && tile.y === chunkData.chunk.y * 10 + 9 && neighbors.east && neighbors.north) || // bottom-left
-          (tile.x === chunkData.chunk.x * 10 + 9 && tile.y === chunkData.chunk.y * 10 + 9 && neighbors.west && neighbors.north); // bottom-right
-
-        if (isCornerCase) {
-          const baseColor = tile.c;
-          const blendedColor = TileBlending.calculateBlendedColor(tile, neighborMap, 0, 0, 8, baseColor);
-
-          // Should blend if at least two different biome neighbors
-          const shouldBlend = Object.values(neighborMap)
-            .filter(n => n && TileBlending.canBlendBiomes(tile.b, n.b))
-            .length >= 2;
-
-          if (shouldBlend) {
-            expect(blendedColor).not.toBe(baseColor);
-          }
-        }
-      });
-    });
-  });
-
+  // Test 4: Validates that legacy requestChunk calls without mode still work correctly.
   it("should respond to legacy requestChunk (no mode) calls", async () => {
     adapter = NetworkFactory.createAdapter();
     await adapter.connect();

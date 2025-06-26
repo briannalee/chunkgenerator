@@ -8,6 +8,7 @@
     "rootDir": "./src",
     "esModuleInterop": true, // Ensures compatibility with CommonJS modules
     "lib": ["ES2020", "DOM"],
+    "sourceMap": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],

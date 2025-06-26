@@ -23,14 +23,24 @@ export class ColorCalculations {
   static getWaterColor(tile: WaterTile): number {
     // Depth-based water coloring
     const depthFactor = 1 - tile.nH; // Deeper water is darker
-    const baseColors = {
-      [WaterType.RIVER]: 0x1E90FF, // DodgerBlue
-      [WaterType.OCEAN]: 0x0f4d8a,  // DeepSkyBlue
-      [WaterType.LAKE]: 0x5F9EA0, // CadetBlue
-      [WaterType.NONE]: 0x000000 // Default color for no water
-    };
 
-    const baseColor = baseColors[tile.wT];
+    let baseColor = 0x0000FF;
+    if (tile.wT === WaterType.OCEAN) {
+      if (tile.b === Biome.OCEAN_SHALLOW) {
+        baseColor = ColorMap[Biome.OCEAN_SHALLOW];
+      }
+      else if (tile.b === Biome.OCEAN_DEEP) { 
+        baseColor = ColorMap[Biome.OCEAN_DEEP];
+      }
+    } else if (tile.wT === WaterType.RIVER) {
+      if (tile.b === Biome.RIVER) {
+        baseColor = ColorMap[Biome.RIVER];
+      }
+    } else if (tile.wT === WaterType.LAKE) {
+      if (tile.b === Biome.LAKE) {
+        baseColor = ColorMap[Biome.LAKE];
+      }
+    }
     return this.darkenColor(baseColor, depthFactor * 0.7);
   }
 
