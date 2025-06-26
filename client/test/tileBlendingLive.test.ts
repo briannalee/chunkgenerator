@@ -37,7 +37,7 @@ describe("Tile Blending Live", () => {
     // Request each chunk
     await Promise.all(
       chunkCoordinates.flatMap(({ x, y }) => [
-        gameLogic.requestChunk(x, y, "chunk"),
+        gameLogic.requestChunk(x, y, 'chunk'),
       ])
     );
 
@@ -61,8 +61,8 @@ describe("Tile Blending Live", () => {
     await gameLogic.disconnect();
   });
 
-  // Test 0: Ensures getChunkWithBorders returns at least 144 tiles (10x10 core + 1 tile border)
-  it("should load at least 144 tiles with getChunkWithBorders", async () => {
+  // Test 0: Ensures getChunkWithBorders returns at exactly 144 tiles (10x10 core + 1 tile border including corners)
+  it("should load exactly 144 tiles with getChunkWithBorders", async () => {
     for (const { chunk } of testChunks) {
       const chunkWithBorders = await gameLogic.getChunkWithBorders(chunk.x, chunk.y);
       expect(chunkWithBorders).toBeDefined();
@@ -73,7 +73,7 @@ describe("Tile Blending Live", () => {
         console.warn(`Chunk (${chunk.x}, ${chunk.y}) returned only ${tileCount} tiles`);
       }
 
-      expect(tileCount).toBeGreaterThanOrEqual(144);
+      expect(tileCount).toBe(144);
     }
   });
 
@@ -202,10 +202,8 @@ describe("Tile Blending Live", () => {
 
           if (sx === 4 && sy === 4) {
             // Center point: should never blend, must match base color
-            // Center point: should never blend, must match base color
             expect(blendedColor).toBe(baseColor);
           } else {
-            // Edge/corner points: should blend if blending is expected
             // Edge/corner points: should blend if blending is expected
             if (shouldBlend) {
               if (blendedColor === baseColor) {
