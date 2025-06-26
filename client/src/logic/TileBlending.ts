@@ -6,7 +6,7 @@ export class TileBlending {
 
     // Define which biomes can blend with each other
     const blendableGroups = [
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
     ];
 
     return blendableGroups.some(group =>
@@ -16,7 +16,7 @@ export class TileBlending {
 
   static shouldBlendWithNeighbors(tile: Tile, neighbors: any): boolean {
     // Check if any neighbor has a different biome that should blend
-    const blendableBiomes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+    const blendableBiomes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 
     if (!blendableBiomes.includes(tile.b)) return false;
 
@@ -28,7 +28,7 @@ export class TileBlending {
   }
 
   static calculateBlendedColor(tile: Tile, neighbors: any, sx: number, sy: number, subTilesPerSide: number, baseColor: number): number {
-    const edgeThreshold = 2; // How close to edge before blending starts
+    const edgeThreshold = 3; // How close to edge before blending starts
     const maxBlend = 0.4; // Maximum blend factor
 
     let blendFactor = 0;
@@ -73,6 +73,42 @@ export class TileBlending {
       if (factor > blendFactor) {
         blendFactor = factor;
         neighborColor = ColorCalculations.getTileColor(neighbors.west);
+      }
+    }
+
+    // Northwest corner blending
+    if (distFromTop < edgeThreshold && distFromLeft < edgeThreshold && neighbors.northwest && TileBlending.canBlendBiomes(tile.b, neighbors.northwest.b)) {
+      const factor = Math.min((edgeThreshold - distFromTop) / edgeThreshold, (edgeThreshold - distFromLeft) / edgeThreshold) * maxBlend;
+      if (factor > blendFactor) {
+        blendFactor = factor;
+        neighborColor = ColorCalculations.getTileColor(neighbors.northwest);
+      }
+    }
+
+    // Northeast
+    if (distFromTop < edgeThreshold && distFromRight < edgeThreshold && neighbors.northeast && TileBlending.canBlendBiomes(tile.b, neighbors.northeast.b)) {
+      const factor = Math.min((edgeThreshold - distFromTop) / edgeThreshold, (edgeThreshold - distFromRight) / edgeThreshold) * maxBlend;
+      if (factor > blendFactor) {
+        blendFactor = factor;
+        neighborColor = ColorCalculations.getTileColor(neighbors.northeast);
+      }
+    }
+
+    // Southwest
+    if (distFromBottom < edgeThreshold && distFromLeft < edgeThreshold && neighbors.southwest && TileBlending.canBlendBiomes(tile.b, neighbors.southwest.b)) {
+      const factor = Math.min((edgeThreshold - distFromBottom) / edgeThreshold, (edgeThreshold - distFromLeft) / edgeThreshold) * maxBlend;
+      if (factor > blendFactor) {
+        blendFactor = factor;
+        neighborColor = ColorCalculations.getTileColor(neighbors.southwest);
+      }
+    }
+
+    // Southeast
+    if (distFromBottom < edgeThreshold && distFromRight < edgeThreshold && neighbors.southeast && TileBlending.canBlendBiomes(tile.b, neighbors.southeast.b)) {
+      const factor = Math.min((edgeThreshold - distFromBottom) / edgeThreshold, (edgeThreshold - distFromRight) / edgeThreshold) * maxBlend;
+      if (factor > blendFactor) {
+        blendFactor = factor;
+        neighborColor = ColorCalculations.getTileColor(neighbors.southeast);
       }
     }
 

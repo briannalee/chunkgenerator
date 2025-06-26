@@ -73,10 +73,10 @@ const generateTerrainUnit = async (
   if (mode === 'chunk') {
     terrain = worldGenerator.generateChunk(x, y, chunkSize);
   } else if (mode === 'row') {
-    const row = worldGenerator.generateTerrainLine(y, x * chunkSize, chunkSize + 2, 'row');
+    const row = worldGenerator.generateTerrainLine(y, x, chunkSize, 'row');
     terrain = [row]; // 1 row
   } else {
-    const col = worldGenerator.generateTerrainLine(y, x * chunkSize, chunkSize + 2, 'column');
+    const col = worldGenerator.generateTerrainLine(x, y, chunkSize, 'column')
     terrain = col.map(pt => [pt]); // 1 column
   }
 

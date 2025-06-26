@@ -50,6 +50,7 @@ export class GameLogic {
   public lastPlayerChunkX: number = 0;
   public lastPlayerChunkY: number = 0;
   public lastChunkCheck: number = 0;
+  private borderCache = new Map<string, ChunkData>();
 
   // Movement tracking for predictive loading
   private lastPlayerPosition: PlayerData = { x: 0, y: 0 };
@@ -90,11 +91,9 @@ export class GameLogic {
 
   private handleNetworkMessage(data: unknown) {
     const message = data as any;
-
     if (message.type === "chunkData") {
       const { x, y, tiles, mode } = message.chunk;
       const chunkKey = `${x},${y}`;
-
       if (!tiles || !Array.isArray(tiles[0]) || tiles.length === 0) return;
 
       const mappedTiles = tiles.map((t: any) => {
@@ -112,7 +111,6 @@ export class GameLogic {
           iC: t[10] === 1,
           w: isWater
         };
-
         return isWater
           ? { ...baseProperties, wT: t[11] as WaterType } as WaterTile
           : {
@@ -126,22 +124,28 @@ export class GameLogic {
       const chunkData = { x, y, tiles: mappedTiles };
 
       if (mode === "chunk") {
-        // Only process and render full chunks
+        // Full chunk - store in main chunks and process
+        this.chunks[chunkKey] = chunkData;
         this.processChunkData(chunkData);
         this.loadedChunks.add(chunkKey);
         this.checkPendingChunks();
+      } else if (mode === "row" || mode === "column") {
+        // Border data - store in border cache using world coordinates as key
+        // The server sends world coordinates, so use them directly
+        const worldKey = `${x},${y}`;
+        this.borderCache.set(worldKey, chunkData);
       }
 
-      this.pendingChunks.delete(chunkKey);
-
-      // Cache it no matter the mode, since border tiles use this.chunks[chunkKey]
-      this.chunks[chunkKey] = chunkData;
+      // Remove from pending using the correct key
+      if (mode === "chunk") {
+        this.pendingChunks.delete(chunkKey);
+      } else {
+        this.pendingChunks.delete(`${x},${y}`); // World coordinates for border requests
+      }
     }
-
     else if (message.type === "connected") {
       this.playerId = message.id;
       this.updatePlayers(message.players);
-
     } else if (message.type === "playerUpdate") {
       this.updatePlayers(message.players);
     }
@@ -490,7 +494,7 @@ export class GameLogic {
   public async getChunkWithBorders(x: number, y: number): Promise<ChunkData | null> {
     const chunkKey = `${x},${y}`;
     const baseChunk = this.chunks[chunkKey];
-      if (!this.chunks[chunkKey]) {
+    if (!baseChunk) {
       console.warn(`Chunk at (${x}, ${y}) not found`);
       return null;
     }
@@ -501,91 +505,106 @@ export class GameLogic {
       tiles: [...baseChunk.tiles]
     };
 
-    const requestChunkIfMissing = (cx: number, cy: number, mode: string) => {
-      const key = `${cx},${cy}`;
-      if (!this.chunks[key] && !this.pendingChunks.has(key)) {
-        this.pendingChunks.add(key);
-        this.networkAdapter.send({ type: "requestChunk", x: cx, y: cy, mode });
-      }
-      return key;
-    };
-
-    const waitChunk = async (key: string) => {
+    const waitForBorderData = async (chunkKey: string, borderKey: string): Promise<ChunkData | null> => {
       const maxWait = 500;
       const interval = 50;
       let elapsed = 0;
+
       while (elapsed < maxWait) {
-        if (this.chunks[key]) return this.chunks[key];
+        // Check for full chunk first (highest priority)
+        if (this.chunks[chunkKey]) {
+          return this.chunks[chunkKey];
+        }
+        // Then check border cache using world coordinate key
+        if (this.borderCache.has(borderKey)) {
+          return this.borderCache.get(borderKey)!;
+        }
+
         await new Promise(res => setTimeout(res, interval));
         elapsed += interval;
       }
+
+      console.warn(`Border data for chunk ${chunkKey} / border ${borderKey} not available after waiting.`);
       return null;
     };
 
-    // Edge neighbors (W/E = columns, N/S = rows)
+    // Convert chunk coordinates to world coordinates for border requests
+    const CHUNK_SIZE = 10; // Assuming 10x10 chunks
+    const chunkWorldX = x * CHUNK_SIZE;
+    const chunkWorldY = y * CHUNK_SIZE;
+
+    // Edge neighbors - use world coordinates for border cache keys
     const edgeDefs = [
-      { dx: -1, dy: 0, mode: 'column', reqX: x - 1, reqY: y }, // west
-      { dx: 1, dy: 0, mode: 'column', reqX: x + 1, reqY: y },  // east
-      { dx: 0, dy: -1, mode: 'row', reqX: x, reqY: y - 1 },    // north
-      { dx: 0, dy: 1, mode: 'row', reqX: x, reqY: y + 1 }      // south
+      {
+        dx: -1, dy: 0, mode: 'column',
+        worldX: chunkWorldX - 1, worldY: chunkWorldY,
+        chunkKey: `${x - 1},${y}`,  // For checking full chunks
+        borderKey: `${chunkWorldX - 1},${chunkWorldY}`  // For border cache
+      },
+      {
+        dx: 1, dy: 0, mode: 'column',
+        worldX: chunkWorldX + CHUNK_SIZE, worldY: chunkWorldY,
+        chunkKey: `${x + 1},${y}`,
+        borderKey: `${chunkWorldX + CHUNK_SIZE},${chunkWorldY}`
+      },
+      {
+        dx: 0, dy: -1, mode: 'row',
+        worldX: chunkWorldX, worldY: chunkWorldY - 1,
+        chunkKey: `${x},${y - 1}`,
+        borderKey: `${chunkWorldX},${chunkWorldY - 1}`
+      },
+      {
+        dx: 0, dy: 1, mode: 'row',
+        worldX: chunkWorldX, worldY: chunkWorldY + CHUNK_SIZE,
+        chunkKey: `${x},${y + 1}`,
+        borderKey: `${chunkWorldX},${chunkWorldY + CHUNK_SIZE}`
+      }
     ];
 
-    for (const { dx, dy, mode, reqX, reqY } of edgeDefs) {
-      const key = requestChunkIfMissing(reqX, reqY, mode);
-      const neighborChunk = await waitChunk(key);
 
+    const requestBorderIfMissing = (chunkKey: string, borderKey: string, worldX: number, worldY: number, mode: string) => {
+      if (!this.chunks[chunkKey] && !this.borderCache.has(borderKey) && !this.pendingChunks.has(borderKey)) {
+        this.pendingChunks.add(borderKey);
+        this.networkAdapter.send({ type: "requestChunk", x: worldX, y: worldY, mode });
+      }
+      return { chunkKey, borderKey };
+    };
+
+    const borderPromises = edgeDefs.map(({ dx, dy, mode, worldX, worldY, chunkKey, borderKey }) => {
+      const keys = requestBorderIfMissing(chunkKey, borderKey, worldX, worldY, mode);
+      return waitForBorderData(keys.chunkKey, keys.borderKey)
+        .then((neighborChunk) => ({ neighborChunk, dx, dy }));
+    });
+
+    const borderResults = await Promise.all(borderPromises);
+
+    for (const { neighborChunk, dx, dy } of borderResults) {
       if (neighborChunk) {
         for (const tile of neighborChunk.tiles) {
           if (this.isBorderTile(tile, dx, dy)) {
             chunkWithBorders.tiles.push({ ...tile });
           }
         }
-      } else {
-        console.warn(`Neighbor chunk ${key} not available after waiting.`);
       }
     }
 
-    // Diagonals: inferred from row/col tiles (client requests already include diagonal padding)
-    const diagonalDefs = [
-      {
-        dx: -1, dy: -1,
-        cornerKey: `${x - 1},${y - 1}`,
-        requiredKeys: [`${x - 1},${y}`, `${x},${y - 1}`]
-      },
-      {
-        dx: 1, dy: -1,
-        cornerKey: `${x + 1},${y - 1}`,
-        requiredKeys: [`${x + 1},${y}`, `${x},${y - 1}`]
-      },
-      {
-        dx: -1, dy: 1,
-        cornerKey: `${x - 1},${y + 1}`,
-        requiredKeys: [`${x - 1},${y}`, `${x},${y + 1}`]
-      },
-      {
-        dx: 1, dy: 1,
-        cornerKey: `${x + 1},${y + 1}`,
-        requiredKeys: [`${x + 1},${y}`, `${x},${y + 1}`]
-      }
-    ];
-
-    for (const { dx, dy, cornerKey, requiredKeys } of diagonalDefs) {
-      if (requiredKeys.every(k => this.chunks[k])) {
-        const chunk = this.chunks[cornerKey];
-        if (chunk) {
-          for (const tile of chunk.tiles) {
-            if (this.isBorderTile(tile, dx, dy)) {
-              chunkWithBorders.tiles.push({ ...tile });
-            }
-          }
-        }
-      }
-    }
+    this.cleanupBorderCache();
 
     return chunkWithBorders;
   }
 
 
+  // Method to clean up old border cache entries
+  private cleanupBorderCache() {
+    // Keep only recent border data to prevent memory bloat
+    const maxCacheSize = 100;
+    if (this.borderCache.size > maxCacheSize) {
+      const entries = Array.from(this.borderCache.entries());
+      entries.slice(0, entries.length - maxCacheSize).forEach(([key]) => {
+        this.borderCache.delete(key);
+      });
+    }
+  }
 
   private isBorderTile(tile: Tile, dx: number, dy: number): boolean {
     const tileChunkX = Math.floor(tile.x / CHUNK_SIZE);
