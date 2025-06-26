@@ -318,7 +318,7 @@ wss.on("connection", async (ws) => {
 // Message handling with optimized caching
 async function handleMessage(ws: any, message: any, playerId: string) {
   if (message.type === "requestChunk") {
-    const { x, y } = message;
+    const { x, y, mode = 'chunk', edge, positions } = message;
     if (typeof x !== "number" || typeof y !== "number" || isNaN(x) || isNaN(y)) {
       ws.send(JSON.stringify({ type: "error", message: "Invalid coordinates" }));
       return;
@@ -344,15 +344,28 @@ async function handleMessage(ws: any, message: any, playerId: string) {
         }
       }
 
-      const clientChunk = {
-        x: chunk.x,
-        y: chunk.y,
-        tiles: chunk.tiles
-      };
+      let responseData;
 
-      const chunkResponse = { type: "chunkData", chunk: clientChunk };
-      const chunkData = JSON.stringify(chunkResponse);
-      zlib.gzip(chunkData, (err, compressed) => {
+      if (mode === 'chunk') {
+        // Existing full chunk response
+        const clientChunk = {
+          x: chunk.x,
+          y: chunk.y,
+          tiles: chunk.tiles
+        };
+        responseData = { type: "chunkData", chunk: clientChunk, mode: 'chunk' };
+      } else {
+        // Handle partial requests
+        responseData = {
+          type: "chunkData",
+          chunk: { x, y },
+          mode,
+          tiles: getPartialTiles(chunk, mode, edge, positions)
+        };
+      }
+
+      const chunkResponse = JSON.stringify(responseData);
+      zlib.gzip(chunkResponse, (err, compressed) => {
         if (!err) ws.send(compressed, { binary: true });
       });
     } catch (error) {
@@ -367,6 +380,100 @@ async function handleMessage(ws: any, message: any, playerId: string) {
     const players = await getAllPlayers();
     ws.send(JSON.stringify({ type: "handshook", id: playerId, players }));
   }
+}
+
+// Add helper function to extract partial tiles
+function getPartialTiles(chunk: ChunkData, mode: string, edge?: string, positions?: { x: number, y: number }[]): any[] {
+  if (mode === 'chunk') return chunk.tiles;
+
+  const tiles: any[] = [];
+  const CHUNK_SIZE = 10; // Assuming 10x10 chunks
+
+  if (mode === 'row' && edge) {
+    // Return a row with extra points for diagonals (12 tiles total)
+    let rowIndex;
+    if (edge === 'north') rowIndex = 0;
+    else if (edge === 'south') rowIndex = CHUNK_SIZE - 1;
+    else return [];
+
+    // Get main row tiles (10 tiles)
+    for (let x = 0; x < CHUNK_SIZE; x++) {
+      const tile = chunk.tiles.find(t => t[0] === chunk.x * CHUNK_SIZE + x && t[1] === chunk.y * CHUNK_SIZE + rowIndex);
+      if (tile) tiles.push(tile);
+    }
+
+    // Add diagonal points (one on each side)
+    // Left diagonal
+    tiles.push(...getCornerTiles(chunk, edge === 'north' ? 'northwest' : 'southwest'));
+    // Right diagonal
+    tiles.push(...getCornerTiles(chunk, edge === 'north' ? 'northeast' : 'southeast'));
+
+  } else if (mode === 'column' && edge) {
+    // Return a column with extra points for diagonals (12 tiles total)
+    let colIndex;
+    if (edge === 'west') colIndex = 0;
+    else if (edge === 'east') colIndex = CHUNK_SIZE - 1;
+    else return [];
+
+    // Get main column tiles (10 tiles)
+    for (let y = 0; y < CHUNK_SIZE; y++) {
+      const tile = chunk.tiles.find(t => t[0] === chunk.x * CHUNK_SIZE + colIndex && t[1] === chunk.y * CHUNK_SIZE + y);
+      if (tile) tiles.push(tile);
+    }
+
+    // Add diagonal points (one on each side)
+    // Top diagonal
+    tiles.push(...getCornerTiles(chunk, edge === 'west' ? 'northwest' : 'northeast'));
+    // Bottom diagonal
+    tiles.push(...getCornerTiles(chunk, edge === 'west' ? 'southwest' : 'southeast'));
+
+  } else if (mode === 'point' && positions) {
+    // Return specific points
+    positions.forEach(pos => {
+      const tile = chunk.tiles.find(t =>
+        t[0] === chunk.x * CHUNK_SIZE + pos.x &&
+        t[1] === chunk.y * CHUNK_SIZE + pos.y
+      );
+      if (tile) tiles.push(tile);
+    });
+  }
+
+  return tiles;
+}
+
+// Helper to get corner tiles
+function getCornerTiles(chunk: ChunkData, corner: string): any[] {
+  const CHUNK_SIZE = 10;
+  let x, y;
+
+  switch (corner) {
+    case 'northwest':
+      x = -1; y = -1;
+      break;
+    case 'northeast':
+      x = CHUNK_SIZE; y = -1;
+      break;
+    case 'southwest':
+      x = -1; y = CHUNK_SIZE;
+      break;
+    case 'southeast':
+      x = CHUNK_SIZE; y = CHUNK_SIZE;
+      break;
+    default:
+      return [];
+  }
+
+  // Since we don't have actual diagonal tiles, we'll return the nearest available tile
+  // In a real implementation, you might need to generate these on demand
+  const nearestX = Math.max(0, Math.min(CHUNK_SIZE - 1, x >= 0 ? 0 : CHUNK_SIZE - 1));
+  const nearestY = Math.max(0, Math.min(CHUNK_SIZE - 1, y >= 0 ? 0 : CHUNK_SIZE - 1));
+
+  const tile = chunk.tiles.find(t =>
+    t[0] === chunk.x * CHUNK_SIZE + nearestX &&
+    t[1] === chunk.y * CHUNK_SIZE + nearestY
+  );
+
+  return tile ? [tile] : [];
 }
 
 // Broadcast player updates

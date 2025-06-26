@@ -17,7 +17,7 @@ subClient.on('message', (channel, message) => {
   if (channel === 'chunk_invalidate') {
     const { x, y } = JSON.parse(message);
     const localKey = `${x},${y}`;
-    
+
     // Delete from worker's local cache
     localCache.delete(localKey);
   }
@@ -28,15 +28,15 @@ const localCache = new Map<string, ChunkData>();
 const MAX_LOCAL_CACHE_SIZE = 100;
 
 // Generate a chunk with realistic terrain
-const generateChunk = async (x: number, y: number): Promise<ChunkData> => {
+const generateChunk = async (x: number, y: number, mode: string = 'chunk', edge?: string, positions?: { x: number, y: number }[]): Promise<ChunkData> => {
   const cacheKey = `worker_chunk:${x}:${y}`;
-  
+
   // Check local cache first (fastest)
   const localKey = `${x},${y}`;
   if (localCache.has(localKey)) {
     return localCache.get(localKey)!;
   }
-  
+
   // Check Redis cache
   try {
     const cached = await redis.get(cacheKey);
@@ -49,9 +49,14 @@ const generateChunk = async (x: number, y: number): Promise<ChunkData> => {
   } catch (error) {
     console.error('Redis cache error in worker:', error);
   }
-  
+
   // Generate new chunk
-  const terrain = worldGenerator.generateChunk(x, y, 10);
+  let terrain;
+  if (mode === 'chunk') {
+    terrain = worldGenerator.generateChunk(x, y, 10);
+  } else {
+    terrain = worldGenerator.generatePartialChunk(x, y, mode, edge, positions);
+  }
 
   let tiles = [];
   for (let row of terrain) {
@@ -81,18 +86,22 @@ const generateChunk = async (x: number, y: number): Promise<ChunkData> => {
       ]);
     }
   }
-  
+
   const chunk: ChunkData = { x, y, tiles, terrain };
-  
+
+  if (mode !== 'chunk') {
+    chunk.tiles = getPartialTiles(chunk, mode, edge, positions);
+  }
+
   // Cache the generated chunk in Redis and local cache
   try {
     await redis.setex(cacheKey, 1800, JSON.stringify(chunk)); // 30 minutes TTL
   } catch (error) {
     console.error('Redis set error in worker:', error);
   }
-  
+
   setLocalCache(localKey, chunk);
-  
+
   return chunk;
 };
 
@@ -111,19 +120,19 @@ function setLocalCache(key: string, chunk: ChunkData) {
 // Listen for messages from the main thread
 parentPort?.on('message', async (data) => {
   const { x, y, requestId } = data;
-  
+
   try {
     const chunk = await generateChunk(x, y);
-    parentPort?.postMessage({ 
-      success: true, 
-      chunk, 
-      requestId 
+    parentPort?.postMessage({
+      success: true,
+      chunk,
+      requestId
     });
   } catch (error) {
-    parentPort?.postMessage({ 
-      success: false, 
+    parentPort?.postMessage({
+      success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-      requestId 
+      requestId
     });
   }
 });

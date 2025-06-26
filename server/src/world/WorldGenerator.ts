@@ -52,6 +52,56 @@ export class WorldGenerator {
     return terrain;
   }
 
+  public generatePartialChunk(chunkX: number, chunkY: number, mode: string, edge?: string, positions?: { x: number, y: number }[]): TerrainPoint[][] {
+    const CHUNK_SIZE = 10;
+    const terrain: TerrainPoint[][] = [];
+
+    if (mode === 'row' && edge) {
+      // Generate a single row with extra width for diagonals
+      const rowIndex = edge === 'north' ? 0 : (edge === 'south' ? CHUNK_SIZE - 1 : -1);
+      if (rowIndex === -1) return [];
+
+      // Generate from x=-1 to x=CHUNK_SIZE for diagonal points
+      terrain[rowIndex] = [];
+      for (let x = -1; x <= CHUNK_SIZE; x++) {
+        const worldX = chunkX * CHUNK_SIZE + x;
+        const worldY = chunkY * CHUNK_SIZE + rowIndex;
+        terrain[rowIndex].push(this.generateTerrainPointFast(worldX, worldY));
+      }
+
+    } else if (mode === 'column' && edge) {
+      // Generate a single column with extra height for diagonals
+      const colIndex = edge === 'west' ? 0 : (edge === 'east' ? CHUNK_SIZE - 1 : -1);
+      if (colIndex === -1) return [];
+
+      // Generate from y=-1 to y=CHUNK_SIZE for diagonal points
+      for (let y = -1; y <= CHUNK_SIZE; y++) {
+        if (!terrain[y]) terrain[y] = [];
+        const worldX = chunkX * CHUNK_SIZE + colIndex;
+        const worldY = chunkY * CHUNK_SIZE + y;
+        terrain[y][colIndex] = this.generateTerrainPointFast(worldX, worldY);
+      }
+
+    } else if (mode === 'point' && positions) {
+      // Generate specific points
+      positions.forEach(pos => {
+        const worldX = chunkX * CHUNK_SIZE + pos.x;
+        const worldY = chunkY * CHUNK_SIZE + pos.y;
+
+        // Handle positions that might be slightly outside normal bounds for diagonals
+        const localX = Math.max(-1, Math.min(CHUNK_SIZE, pos.x));
+        const localY = Math.max(-1, Math.min(CHUNK_SIZE, pos.y));
+
+        if (!terrain[localY]) terrain[localY] = [];
+        terrain[localY][localX] = this.generateTerrainPointFast(worldX, worldY);
+      });
+    }
+
+    // Apply necessary post-processing
+    this.postProcessChunk(terrain, CHUNK_SIZE);
+    return terrain;
+  }
+
   private cacheHeight(x: number, y: number, height: number): void {
     this.heightCache.set(`${x},${y}`, height);
   }
