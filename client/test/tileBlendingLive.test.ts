@@ -1,11 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TileBlending } from "../src/logic/TileBlending";
-import { ColorCalculations } from "../src/logic/ColorCalculations";
 import { INetworkAdapter } from "../src/network/INetworkAdapter";
 import { NetworkFactory } from "../src/network/NetworkFactory";;
-import { TileNormalizer } from "../src/logic/NormalizeTiles";
 import { GameLogic } from "../src/logic/GameLogic";
-import { ColorIndex, Tile } from '../src/types/types';
 
 // This test suite validates the tile blending logic in a live, multi-chunk environment.
 // It covers edge cases, intra-chunk blending, chunk borders, and corner blending for a variety of chunk coordinates.
@@ -22,7 +19,7 @@ describe("Tile Blending Live", () => {
     { x: -3, y: 2 },  // Negative coordinates
     { x: 10, y: -7 }, // Mixed coordinates
     { x: 0, y: 15 },   // Far chunk
-    {x: -2191, y: -132}, // Chunk with known diagonal blending requirements
+    { x: -2191, y: -132 }, // Chunk with known diagonal blending requirements
   ];
 
   //Randomly generated chunk coordinates for additional coverage
@@ -33,7 +30,6 @@ describe("Tile Blending Live", () => {
     });
   }
 
-
   beforeAll(async () => {
     gameLogic = new GameLogic();
     await gameLogic.connect();
@@ -41,7 +37,7 @@ describe("Tile Blending Live", () => {
     // Request each chunk
     await Promise.all(
       chunkCoordinates.flatMap(({ x, y }) => [
-        gameLogic.requestChunk(x, y, "chunk"),
+        gameLogic.requestChunk(x, y, 'chunk'),
       ])
     );
 
@@ -65,6 +61,21 @@ describe("Tile Blending Live", () => {
     await gameLogic.disconnect();
   });
 
+  // Test 0: Ensures getChunkWithBorders returns at exactly 144 tiles (10x10 core + 1 tile border including corners)
+  it("should load exactly 144 tiles with getChunkWithBorders", async () => {
+    for (const { chunk } of testChunks) {
+      const chunkWithBorders = await gameLogic.getChunkWithBorders(chunk.x, chunk.y);
+      expect(chunkWithBorders).toBeDefined();
+
+      if (!chunkWithBorders) continue;
+      const tileCount = chunkWithBorders.tiles.length;
+      if (tileCount < 144) {
+        console.warn(`Chunk (${chunk.x}, ${chunk.y}) returned only ${tileCount} tiles`);
+      }
+
+      expect(tileCount).toBe(144);
+    }
+  });
 
   // Test 1: Checks that tiles are only marked as blendable if they have at least one neighbor with a different biome that is blendable.
   it("should correctly identify blendable tiles with different neighboring biomes", () => {
@@ -126,6 +137,7 @@ describe("Tile Blending Live", () => {
         const blendedColor = TileBlending.calculateBlendedColor(tile, neighborMap, tile.x, tile.y, 8, baseColor);
         const shouldBlend = TileBlending.shouldBlendWithNeighbors(tile, neighborMap);
 
+        // If blending is expected but the color did not change, log a warning for debugging
         if (shouldBlend && blendedColor === baseColor) {
           const neighborSummary = Object.entries(neighborMap).reduce((acc, [dir, t]) => {
             acc[dir] = t ? {
@@ -141,6 +153,7 @@ describe("Tile Blending Live", () => {
           console.warn(`Tile at (${tile.x}, ${tile.y}) in chunk (${chunkData.chunk.x}, ${chunkData.chunk.y}) failed to blend chunk edges. Me:`, JSON.stringify(tile), "Neighbors: ", JSON.stringify(neighborSummary, null, 2));
         }
 
+        // If the tile should blend, the color must be different from the base color
         if (shouldBlend) {
           expect(blendedColor).not.toBe(baseColor);
         }
@@ -173,6 +186,7 @@ describe("Tile Blending Live", () => {
         };
         const baseColor = tile.c;
         const shouldBlend = TileBlending.shouldBlendWithNeighbors(tile, neighborMap);
+        // Sample points: corners, edges, and center of the tile's sub-tile grid
         // Sample points: corners, edges, and center of the tile's sub-tile grid
         const samplePoints = [
           { sx: 0, sy: 0 },

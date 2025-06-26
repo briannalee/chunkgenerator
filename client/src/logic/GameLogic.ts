@@ -505,6 +505,11 @@ export class GameLogic {
       tiles: [...baseChunk.tiles]
     };
 
+    const seenTiles = new Set<string>();
+    for (const tile of chunkWithBorders.tiles) {
+      seenTiles.add(`${tile.x},${tile.y}`);
+    }
+
     const waitForBorderData = async (chunkKey: string, borderKey: string): Promise<ChunkData | null> => {
       const maxWait = 500;
       const interval = 50;
@@ -561,6 +566,37 @@ export class GameLogic {
       }
     ];
 
+    const cornerDefs = [
+      {
+        dx: -1, dy: -1,
+        worldX: chunkWorldX - 1,
+        worldY: chunkWorldY - 1,
+        chunkKey: `${x - 1},${y - 1}`,
+        borderKey: `${chunkWorldX - 1},${chunkWorldY - 1}`
+      },
+      {
+        dx: 1, dy: -1,
+        worldX: chunkWorldX + CHUNK_SIZE,
+        worldY: chunkWorldY - 1,
+        chunkKey: `${x + 1},${y - 1}`,
+        borderKey: `${chunkWorldX + CHUNK_SIZE},${chunkWorldY - 1}`
+      },
+      {
+        dx: -1, dy: 1,
+        worldX: chunkWorldX - 1,
+        worldY: chunkWorldY + CHUNK_SIZE,
+        chunkKey: `${x - 1},${y + 1}`,
+        borderKey: `${chunkWorldX - 1},${chunkWorldY + CHUNK_SIZE}`
+      },
+      {
+        dx: 1, dy: 1,
+        worldX: chunkWorldX + CHUNK_SIZE,
+        worldY: chunkWorldY + CHUNK_SIZE,
+        chunkKey: `${x + 1},${y + 1}`,
+        borderKey: `${chunkWorldX + CHUNK_SIZE},${chunkWorldY + CHUNK_SIZE}`
+      }
+    ];
+
 
     const requestBorderIfMissing = (chunkKey: string, borderKey: string, worldX: number, worldY: number, mode: string) => {
       if (!this.chunks[chunkKey] && !this.borderCache.has(borderKey) && !this.pendingChunks.has(borderKey)) {
@@ -582,7 +618,36 @@ export class GameLogic {
       if (neighborChunk) {
         for (const tile of neighborChunk.tiles) {
           if (this.isBorderTile(tile, dx, dy)) {
-            chunkWithBorders.tiles.push({ ...tile });
+            const key = `${tile.x},${tile.y}`;
+            if (!seenTiles.has(key)) {
+              chunkWithBorders.tiles.push({ ...tile });
+              seenTiles.add(key);
+            }
+          }
+        }
+      }
+    }
+
+    const cornerPromises = cornerDefs.map(({ dx, dy, worldX, worldY, chunkKey, borderKey }) => {
+      const keys = requestBorderIfMissing(chunkKey, borderKey, worldX, worldY, 'row'); // use 'row' or 'column' arbitrarily
+      return waitForBorderData(keys.chunkKey, keys.borderKey)
+        .then((neighborChunk) => ({ neighborChunk, dx, dy }));
+    });
+
+    const cornerResults = await Promise.all(cornerPromises);
+
+    for (const { neighborChunk, dx, dy } of cornerResults) {
+      if (neighborChunk) {
+        const tx = chunkWorldX + dx * CHUNK_SIZE + (dx === 1 ? 0 : 9);
+        const ty = chunkWorldY + dy * CHUNK_SIZE + (dy === 1 ? 0 : 9);
+        const key = `${tx},${ty}`;
+        if (!seenTiles.has(key)) {
+          for (const tile of neighborChunk.tiles) {
+            if (tile.x === tx && tile.y === ty) {
+              chunkWithBorders.tiles.push({ ...tile });
+              seenTiles.add(key);
+              break;
+            }
           }
         }
       }
