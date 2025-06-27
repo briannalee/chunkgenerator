@@ -5,4 +5,5 @@ export type ChunkData = {
   y: number;
   tiles: any[];
   terrain?: TerrainPoint[][];
+  mode: 'chunk' | 'row' | 'column';
 };
