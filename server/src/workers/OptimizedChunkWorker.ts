@@ -18,7 +18,7 @@ subClient.on('message', (channel, message) => {
   if (channel === 'chunk_invalidate') {
     const { x, y } = JSON.parse(message);
     const localKey = `${x},${y}`;
-
+    
     // Delete from worker's local cache
     localCache.delete(localKey);
   }

@@ -401,8 +401,7 @@ subClient.subscribe(`worker_${process.pid}`);
 subClient.on('message', async (channel, message) => {
   if (channel === `worker_${process.pid}`) {
     const request = JSON.parse(message);
-    // Handle chunk generation request from cluster master
-    // This would be implemented based on your specific clustering needs
+    // TODO: Handle worker-specific messages if needed
   }
 });
 
