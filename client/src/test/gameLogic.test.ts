@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { GameLogic, CHUNK_SIZE, MAX_PENDING_REQUESTS, TILE_SIZE } from '../src/logic/GameLogic';
-import { Biome, ChunkData, ColorIndex, LandTile, SoilType, VegetationType, WaterTile, WaterType } from '../src/types/types';
+import { GameLogic, CHUNK_SIZE, MAX_PENDING_REQUESTS, TILE_SIZE } from '../logic/GameLogic';
+import { ChunkData} from 'shared/ChunkTypes';
 
 
 describe('GameLogic', () => {

@@ -4,17 +4,22 @@
     "module": "ESNext", // Ensures ES module syntax
     "moduleResolution": "Node", 
     "strict": true,
-    "outDir": "./dist", // Outputs transpiled code to a directory
+    "outDir": "./dist", 
     "rootDir": "./src",
     "esModuleInterop": true, // Ensures compatibility with CommonJS modules
     "lib": ["ES2020", "DOM"],
     "sourceMap": true,
-    "baseUrl": ".",
+    "baseUrl": "./src",
     "paths": {
       "@/*": ["src/*"],
-      "@test/*": ["test/*"]
+      "@test/*": ["src/test/*"],
+      "shared/*": ["../../shared/src/*"]
     },
+    "skipLibCheck": true,
   },
-  "include": ["src/**/*"],
+  "references": [
+    { "path": "../shared" }
+  ],
+  "include": ["src"],
   "exclude": ["node_modules"]
 }

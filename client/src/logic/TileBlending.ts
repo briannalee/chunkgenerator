@@ -1,4 +1,4 @@
-import { Tile } from "@/types/types";
+import { Tile } from "shared/TileTypes";
 import { ColorCalculations } from "./ColorCalculations";
 
 export class TileBlending {

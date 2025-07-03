@@ -23,7 +23,7 @@ export enum WaterType {
   NONE = 0,
   OCEAN = 1,
   RIVER = 2,
-  LAKE = 3,
+  LAKE = 3, 
 }
 
 export enum VegetationType {
@@ -34,7 +34,7 @@ export enum VegetationType {
   CONIFEROUS = 4,
   TROPICAL = 5,
   CACTUS = 6,
-  TUNDRA_VEGETATION = 7,
+  TUNDRA_VEGETATION = 7, 
 }
 
 export enum SoilType {
@@ -93,36 +93,3 @@ export const ColorMap: Record<ColorIndex, number> = {
   [ColorIndex.SWAMP]: 0x8FBC8F, // Dark sea green for swamps
   [ColorIndex.MARSH]: 0x98FB98, // Pale green for marshes
 };
-
-export interface BaseTile {
-  x: number;
-  y: number;
-  h: number; // height
-  nH: number; // normalized height (0-1)
-  t: number; // temperature (-1 to 1)
-  p: number; // precipitation (0-1)
-  b: Biome;
-  stp: number; // steepness
-  c: ColorIndex;
-}
-
-export interface WaterTile extends BaseTile {
-  w: true;
-  wT: WaterType;
-}
-
-export interface LandTile extends BaseTile {
-  w: false;
-  v: number; // vegetation amount (0-1)
-  vT: VegetationType;
-  sT: SoilType;
-  iC: boolean; // is cliff
-}
-
-export type Tile = WaterTile | LandTile;
-
-export interface ChunkData {
-  x: number;
-  y: number;
-  tiles: Tile[];
-}

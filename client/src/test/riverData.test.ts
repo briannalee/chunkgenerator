@@ -1,8 +1,9 @@
 import { describe, beforeAll, afterAll, it, expect } from "vitest";
-import { INetworkAdapter } from "../src/network/INetworkAdapter";
-import { NetworkFactory } from "../src/network/NetworkFactory";
-import { WaterType, Biome, SoilType, LandTile, WaterTile, BaseTile, VegetationType, ColorIndex } from "../src/types/types";
-import {TileNormalizer } from "../src/logic/NormalizeTiles";
+import { INetworkAdapter } from "../network/INetworkAdapter";
+import { NetworkFactory } from "../network/NetworkFactory";
+import { WaterType, SoilType, Biome } from "shared/TerrainTypes";
+import {TileNormalizer } from "../logic/NormalizeTiles";
+import { LandTile } from "shared/TileTypes";
 
 // Main test suite for terrain quality
 describe('River Quality Tests', () => {
@@ -169,7 +170,7 @@ describe('River Quality Tests', () => {
         });
 
         // Verify coastal properties
-        coastalTiles.forEach(tile => {
+        coastalTiles.forEach((tile: LandTile) => {
           expect(tile.b).toBe(Biome.BEACH); // Should be beach biome
           expect(tile.sT).toBe(SoilType.SAND);    // Should have sandy soil
           expect(tile.nH).toBeGreaterThan(0.4 - 0.03); // Should be just above sea level

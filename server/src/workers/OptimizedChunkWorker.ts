@@ -1,8 +1,8 @@
 import { parentPort } from 'worker_threads';
 import { WorldGenerator } from '../world/WorldGenerator';
-import { ChunkData } from '../models/Chunk';
+import { ChunkData } from 'shared/ChunkTypes';
 import Redis from 'ioredis';
-import { TerrainPoint } from '../world/TerrainTypes';
+import { TerrainPoint } from 'shared/TileTypes';
 
 // Initialize Redis for worker-level caching
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -18,7 +18,7 @@ subClient.on('message', (channel, message) => {
   if (channel === 'chunk_invalidate') {
     const { x, y } = JSON.parse(message);
     const localKey = `${x},${y}`;
-
+    
     // Delete from worker's local cache
     localCache.delete(localKey);
   }

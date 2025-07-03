@@ -3,12 +3,11 @@ import { WebSocketServer } from "ws";
 import * as zlib from 'zlib';
 import { createServer } from "http";
 import dotenv from "dotenv";
-import { ChunkData } from "./models/Chunk";
+import { ChunkData } from "shared/ChunkTypes";
 import { Worker } from "worker_threads";
 import path from "path";
 import Redis from 'ioredis';
 import { Pool } from 'pg';
-
 dotenv.config();
 
 const app = express();

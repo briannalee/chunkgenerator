@@ -1,6 +1,7 @@
 import { PriorityQueue } from '../pathfinding/PriorityQueue';
 import { NoiseGenerator } from './NoiseGenerator';
-import { TerrainPoint, Biome, WaterType, VegetationType, SoilType, ColorIndex } from './TerrainTypes';
+import { Biome, WaterType, VegetationType, SoilType, ColorIndex } from 'shared/TerrainTypes';
+import { TerrainPoint } from 'shared/TileTypes';
 
 export class WorldGenerator {
   private noiseGen: NoiseGenerator;

@@ -1,10 +1,10 @@
 import Phaser from "phaser";
 import { CHUNK_SIZE, GameLogic, TILE_SIZE } from "../logic/GameLogic";
-import { Biome, ChunkData, Tile } from "../types/types";
-import { ColorCalculations } from "@/logic/ColorCalculations";
-import { TileVariation } from "@/logic/TileVariation";
-import { TileBlending } from "@/logic/TileBlending";
-
+import { Tile } from "shared/TileTypes";
+import { ChunkData } from "shared/ChunkTypes";
+import { ColorCalculations } from "../logic/ColorCalculations";
+import { TileVariation } from "../logic/TileVariation";
+import { TileBlending } from "../logic/TileBlending";
 
 const DEBUG_MODE = true; 
 

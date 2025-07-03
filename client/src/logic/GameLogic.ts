@@ -1,4 +1,6 @@
-import { Tile, WaterType, Biome, ChunkData, WaterTile, LandTile, VegetationType, ColorMap, ColorIndex, SoilType } from "../types/types";
+import { WaterType, Biome, VegetationType, ColorIndex, SoilType } from "shared/TerrainTypes";
+import { ChunkData } from "shared/ChunkTypes";
+import { Tile, WaterTile, LandTile } from "shared/TileTypes";
 import { INetworkAdapter } from "../network/INetworkAdapter";
 import { NetworkFactory } from "../network/NetworkFactory";
 

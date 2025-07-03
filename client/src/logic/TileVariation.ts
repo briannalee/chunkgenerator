@@ -1,4 +1,4 @@
-import { Tile } from "@/types/types";
+import { Tile } from "shared/TileTypes";
 import { TILE_SIZE } from "./GameLogic";
 import { ColorCalculations } from "./ColorCalculations";
 
