@@ -187,7 +187,8 @@ async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
       x,
       y,
       tiles: row.tiles,
-      terrain: row.terrain
+      terrain: row.terrain,
+      mode: 'chunk'
     };
   } catch (error) {
     console.error('Database find error:', error);
@@ -220,7 +221,7 @@ async function saveChunkToDB(chunk: ChunkData): Promise<void> {
 }
 
 // Generate chunk using load-balanced worker
-const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> => {
+const generateChunkAsync = (x: number, y: number, mode: string, ws: any): Promise<ChunkData> => {
   return new Promise((resolve, reject) => {
     const requestId = `req_${++requestCounter}`;
     const selectedWorker = selectWorker();
@@ -229,7 +230,7 @@ const generateChunkAsync = (x: number, y: number, ws: any): Promise<ChunkData> =
     selectedWorker.load++;
     const startTime = Date.now();
     pendingRequests.set(requestId, { resolve, reject, ws, startTime });
-    selectedWorker.worker.postMessage({ x, y, requestId });
+    selectedWorker.worker.postMessage({ x, y, mode, requestId });
 
     setTimeout(() => {
       if (pendingRequests.has(requestId)) {
@@ -318,36 +319,47 @@ wss.on("connection", async (ws) => {
 // Message handling with optimized caching
 async function handleMessage(ws: any, message: any, playerId: string) {
   if (message.type === "requestChunk") {
-    const { x, y } = message;
-    if (typeof x !== "number" || typeof y !== "number" || isNaN(x) || isNaN(y)) {
-      ws.send(JSON.stringify({ type: "error", message: "Invalid coordinates" }));
+    const { x, y, mode = "chunk" } = message;
+
+    const validCoords = typeof x === "number" && typeof y === "number" && !isNaN(x) && !isNaN(y);
+    const validMode = mode === "chunk" || mode === "row" || mode === "column" || mode === "point";
+
+    if (!validCoords || !validMode) {
+      ws.send(JSON.stringify({ type: "error", message: "Invalid request parameters" }));
       return;
     }
 
     try {
-      // Check Redis cache first
-      let chunk = await getCachedChunk(x, y);
+      let chunk: ChunkData | null = null;
 
-      if (!chunk) {
-        // Check PostgreSQL database
-        chunk = await findChunkInDB(x, y);
+      if (mode === "chunk") {
+        // Check Redis cache first
+        chunk = await getCachedChunk(x, y);
 
-        if (chunk) {
-          // Cache the chunk from database
-          await setCachedChunk(chunk);
-        } else {
-          // Generate chunk using load-balanced worker
-          const generatedChunk = await generateChunkAsync(x, y, ws);
-          await saveChunkToDB(generatedChunk);
-          await setCachedChunk(generatedChunk);
-          chunk = generatedChunk;
+        if (!chunk) {
+          // Check PostgreSQL fallback
+          chunk = await findChunkInDB(x, y);
+
+          if (chunk) {
+            await setCachedChunk(chunk); // cache it in Redis
+          } else {
+            // Generate full chunk with worker
+            const generatedChunk = await generateChunkAsync(x, y, mode, ws);
+            await saveChunkToDB(generatedChunk);
+            await setCachedChunk(generatedChunk);
+            chunk = generatedChunk;
+          }
         }
+      } else {
+        // Directly generate row/column using worker
+        chunk = await await generateChunkAsync(x, y, mode, ws);
       }
 
       const clientChunk = {
         x: chunk.x,
         y: chunk.y,
-        tiles: chunk.tiles
+        tiles: chunk.tiles,
+        mode: chunk.mode,
       };
 
       const chunkResponse = { type: "chunkData", chunk: clientChunk };
@@ -356,8 +368,8 @@ async function handleMessage(ws: any, message: any, playerId: string) {
         if (!err) ws.send(compressed, { binary: true });
       });
     } catch (error) {
-      console.error('Error processing chunk request:', error);
-      ws.send(JSON.stringify({ type: "error", message: "Failed to generate chunk" }));
+      console.error("Error processing chunk request:", error);
+      ws.send(JSON.stringify({ type: "error", message: "Failed to process chunk request" }));
     }
   } else if (message.type === "move") {
     const { x, y } = message;
@@ -390,8 +402,7 @@ subClient.subscribe(`worker_${process.pid}`);
 subClient.on('message', async (channel, message) => {
   if (channel === `worker_${process.pid}`) {
     const request = JSON.parse(message);
-    // Handle chunk generation request from cluster master
-    // This would be implemented based on your specific clustering needs
+    // TODO: Handle worker-specific messages if needed
   }
 });
 
