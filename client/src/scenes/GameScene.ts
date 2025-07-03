@@ -1,10 +1,10 @@
 import Phaser from "phaser";
 import { CHUNK_SIZE, GameLogic, TILE_SIZE } from "../logic/GameLogic";
-import { Biome, ChunkData, Tile } from "../types/types";
-import { ColorCalculations } from "@/logic/ColorCalculations";
-import { TileVariation } from "@/logic/TileVariation";
-import { TileBlending } from "@/logic/TileBlending";
-
+import { Tile } from "shared/TileTypes";
+import { ChunkData } from "shared/ChunkTypes";
+import { ColorCalculations } from "../logic/ColorCalculations";
+import { TileVariation } from "../logic/TileVariation";
+import { TileBlending } from "../logic/TileBlending";
 
 const DEBUG_MODE = true; 
 
@@ -172,12 +172,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private renderChunk(chunkData: ChunkData) {
+  private async renderChunk(chunkData: ChunkData) {
     const { x: chunkX, y: chunkY } = chunkData;
     const chunkKey = `${chunkX},${chunkY}`;
 
     // Get chunk with border tiles from neighbors
-    const chunkWithBorders = this.gameLogic.getChunkWithBorders(chunkX, chunkY);
+    const chunkWithBorders = await this.gameLogic.getChunkWithBorders(chunkX, chunkY);
     if (!chunkWithBorders) return;
 
     let graphics = this.chunkGraphics.get(chunkKey);

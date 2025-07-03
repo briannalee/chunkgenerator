@@ -1,6 +1,7 @@
 import { PriorityQueue } from '../pathfinding/PriorityQueue';
 import { NoiseGenerator } from './NoiseGenerator';
-import { TerrainPoint, Biome, WaterType, VegetationType, SoilType, ColorIndex } from './TerrainTypes';
+import { Biome, WaterType, VegetationType, SoilType, ColorIndex } from 'shared/TerrainTypes';
+import { TerrainPoint } from 'shared/TileTypes';
 
 export class WorldGenerator {
   private noiseGen: NoiseGenerator;
@@ -50,6 +51,66 @@ export class WorldGenerator {
     this.postProcessChunk(terrain, chunkSize);
     this.manageCacheSize(); // Prevent memory bloat
     return terrain;
+  }
+
+  generateTerrainLine(
+    fixedCoord: number,              // worldY for row, worldX for column
+    startCoord: number,              // starting worldX for row, worldY for column
+    chunkSize: number = 10,
+    direction: 'row' | 'column' = 'row'
+  ): TerrainPoint[] {
+    const terrainLine: TerrainPoint[] = [];
+
+    // Prepare coordinates
+    const coordinates: Array<{ x: number, y: number, worldX: number, worldY: number }> = [];
+
+    for (let i = 0; i < chunkSize; i++) {
+      const worldX = direction === 'row' ? startCoord + i : fixedCoord;
+      const worldY = direction === 'column' ? startCoord + i : fixedCoord;
+
+      coordinates.push({ x: direction === 'row' ? i : 0, y: direction === 'column' ? i : 0, worldX, worldY });
+    }
+
+    // Batch generate height and climate data
+    this.batchGenerateHeights(coordinates, chunkSize);
+    this.batchGenerateClimate(coordinates);
+
+    // Generate terrain points
+    for (let i = 0; i < chunkSize; i++) {
+      const worldX = direction === 'row' ? startCoord + i : fixedCoord;
+      const worldY = direction === 'column' ? startCoord + i : fixedCoord;
+
+      terrainLine[i] = this.generateTerrainPointFast(worldX, worldY);
+    }
+
+    // Wrap in 2D array to preserve post-process compatibility
+    const terrainWrapped = direction === 'row'
+      ? [terrainLine]                       // single row
+      : terrainLine.map(pt => [pt]);       // single column as 2D
+
+    // Skip post-processing for single lines TODO: consider if needed
+    this.manageCacheSize();
+
+    return terrainLine;
+  }
+
+  generateTerrainPoint(
+    worldX: number,
+    worldY: number
+  ): TerrainPoint {
+    // Prepare coordinate array with just one point
+    const coordinates = [{ x: 0, y: 0, worldX, worldY }];
+
+    // Generate height and climate data for the single point
+    this.batchGenerateHeights(coordinates, 1);
+    this.batchGenerateClimate(coordinates);
+
+    // Generate and return the terrain point
+    const terrainPoint = this.generateTerrainPointFast(worldX, worldY);
+
+    this.manageCacheSize(); // Optional: manage cache if needed
+
+    return terrainPoint;
   }
 
   private cacheHeight(x: number, y: number, height: number): void {

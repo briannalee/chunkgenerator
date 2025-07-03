@@ -10,3 +10,5 @@ declare module 'pako' {
   export function inflate(input: Uint8Array, options?: { to?: 'string' }): string | Uint8Array;
   // Add other functions if needed
 }
+
+declare var ActiveXObject: any;

@@ -1,0 +1,27 @@
+{
+  "name": "chunkgenerator",
+  "version": "1.0.0",
+  "description": "This project includes both a client and a server. Follow the instructions below to set up and run the project.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc --build",
+    "build:shared": "tsc --build shared"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/briannalee/chunkgenerator.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/briannalee/chunkgenerator/issues"
+  },
+  "homepage": "https://github.com/briannalee/chunkgenerator#readme",
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "shared": "file:shared"
+  }
+}

@@ -4,10 +4,10 @@
   "main": "index.js",
   "scripts": {
     "test": "npx vitest run",
-    "build": "tsc",
-    "start": "rm -rf dist; tsc && node dist/ClusteredServer.js",
-    "start:optimized": "rm -rf dist; tsc && node dist/OptimizedServer.js",
-    "start:clustered": "rm -rf dist; tsc && node dist/ClusteredServer.js",
+    "build": "tsc --build",
+    "start": "npm run build  && node dist/ClusteredServer.js",
+    "start:optimized": "npm run build && node dist/OptimizedServer.js",
+    "start:clustered": "npm run build && node dist/ClusteredServer.js",
     "dev": "tsx src/OptimizedServer.ts",
     "dev:clustered": "tsx src/ClusteredServer.ts",
     "setup:db": "docker-compose up -d postgres redis",
@@ -26,6 +26,7 @@
     "pg": "^8.11.3",
     "pg-pool": "^3.6.2",
     "redis": "^4.6.12",
+    "shared": "file:../shared",
     "simplex-noise": "^4.0.3",
     "sql.js": "^1.13.0",
     "ws": "^8.18.0"

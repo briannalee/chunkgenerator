@@ -1,8 +1,8 @@
 import { describe, beforeAll, afterAll, it, expect } from "vitest";
-import { INetworkAdapter } from "../src/network/INetworkAdapter";
-import { NetworkFactory } from "../src/network/NetworkFactory";
-import { WaterType, Biome, SoilType, LandTile, WaterTile, BaseTile, VegetationType, ColorIndex } from "../src/types/types";
-import {TileNormalizer } from "../src/logic/NormalizeTiles";
+import { Biome, ColorIndex, SoilType, VegetationType, WaterType } from "shared/TerrainTypes";
+// @ts-ignore
+import { LandTile, WaterTile } from "shared/TileTypes";
+import {TileNormalizer } from "../logic/NormalizeTiles";
 
 // Main test suite for terrain quality
 describe('Tile Normalization Tests', () => {

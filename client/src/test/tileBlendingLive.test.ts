@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { TileBlending } from "../src/logic/TileBlending";
-import { INetworkAdapter } from "../src/network/INetworkAdapter";
-import { NetworkFactory } from "../src/network/NetworkFactory";;
-import { GameLogic } from "../src/logic/GameLogic";
-import { ColorCalculations } from '../src/logic/ColorCalculations';
+import { TileBlending } from "../logic/TileBlending";
+import { INetworkAdapter } from "../network/INetworkAdapter";
+import { NetworkFactory } from "../network/NetworkFactory";;
+import { GameLogic } from "../logic/GameLogic";
 
 // This test suite validates the tile blending logic in a live, multi-chunk environment.
 // It covers edge cases, intra-chunk blending, chunk borders, and corner blending for a variety of chunk coordinates.

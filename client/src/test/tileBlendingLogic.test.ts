@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { TileBlending } from "../src/logic/TileBlending";
-import { ColorCalculations } from "../src/logic/ColorCalculations";
-import { ColorIndex, Tile } from '../src/types/types';
+import { TileBlending } from "../logic/TileBlending";
+import { ColorCalculations } from "../logic/ColorCalculations";
+import { ColorIndex } from 'shared/TerrainTypes';
+import { BaseTile, LandTile, Tile } from 'shared/TileTypes';
 
 describe("TileBlending", () => {
 
   describe("shouldBlendWithNeighbors", () => {
-    const baseTile = { b: 3, w: false, iC: false };
+    const baseTile = {
+      x: 0, y: 0, h: 0, nH: 0, t: 0, p: 0, stp: 0, c: 0,
+      b: 3, w: false,
+      v: 0, vT: 0, sT: 0, iC: false
+    } as LandTile;
     it("returns false if tile biome is not blendable", () => {
       expect(TileBlending.shouldBlendWithNeighbors({ ...baseTile, b: 1 }, {})).toBe(false);
     });
@@ -21,7 +26,11 @@ describe("TileBlending", () => {
   });
 
   describe("calculateBlendedColor", () => {
-    const baseTile = { b: 3, w: false, iC: false };
+    const baseTile = {
+      x: 0, y: 0, h: 0, nH: 0, t: 0, p: 0, stp: 0, c: 0,
+      b: 3, w: false,
+      v: 0, vT: 0, sT: 0, iC: false
+    } as LandTile;
     const neighborTile = { b: 4, w: false, iC: false };
     const baseColor = 0x00ff00;
     const neighborColor = 0x0000ff;
@@ -78,7 +87,11 @@ describe("TileBlending", () => {
 
   describe("chunk border blending", () => {
     it("blends with neighbor chunk border tile", () => {
-      const baseTile = { b: 3, w: false, iC: false };
+      const baseTile = {
+  x: 0, y: 0, h: 0, nH: 0, t: 0, p: 0, stp: 0, c: 0,
+  b: 3, w: false,
+  v: 0, vT: 0, sT: 0, iC: false
+} as LandTile;
       const neighborTile = { b: 4, w: false, iC: false };
       const baseColor = 0x00ff00;
       const neighborColor = 0x0000ff;

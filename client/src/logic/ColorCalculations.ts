@@ -1,4 +1,5 @@
-import { Biome, ColorMap, LandTile, Tile, VegetationType, WaterTile, WaterType } from "../types/types";
+import { Biome, ColorMap, VegetationType, WaterType } from "shared/TerrainTypes";
+import { Tile, WaterTile, LandTile } from "shared/TileTypes";
 
 export class ColorCalculations {
 

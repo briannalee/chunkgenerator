@@ -1,4 +1,5 @@
-import { WaterTile, LandTile, BaseTile, WaterType, VegetationType, SoilType } from "../types/types";
+import { WaterTile, LandTile, BaseTile} from "shared/TileTypes";
+import { WaterType, VegetationType, SoilType } from "shared/TerrainTypes";
 
 export class TileNormalizer {
   /**

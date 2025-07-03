@@ -1,7 +1,7 @@
 // test/network.integration.test.ts
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { NetworkFactory } from '../src/network/NetworkFactory';
-import { INetworkAdapter } from '../src/network/INetworkAdapter'
+import { NetworkFactory } from '../network/NetworkFactory';
+import { INetworkAdapter } from '../network/INetworkAdapter'
 
 // Test configuration
 const TEST_TIMEOUT = 5000; // 5 seconds timeout per test
