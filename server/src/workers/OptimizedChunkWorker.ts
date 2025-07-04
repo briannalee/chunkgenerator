@@ -3,6 +3,7 @@ import { WorldGenerator } from '../world/WorldGenerator';
 import { ChunkData } from 'shared/ChunkTypes';
 import Redis from 'ioredis';
 import { TerrainPoint } from 'shared/TileTypes';
+import { ResourceNode } from 'shared/ResourceTypes';
 
 // Initialize Redis for worker-level caching
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -55,10 +56,20 @@ const generateTerrainUnit = async (
     terrain = col.map(pt => [pt]); // 1 column
   }
 
+  // Record to store resources
+  // We do not send with Tile data, tile data is primitive/enum types only
+  const resources: Record<string, ResourceNode> = {};
+
   // Flatten terrain points into tile array
   const tiles: any[] = [];
   for (let row of terrain) {
     for (let point of row) {
+
+      // First, extract resources (if any)
+      if (point.r) {
+        resources[`${point.x},${point.y}`] = point.r;
+      }
+
       const h = Math.round(point.h * 100) / 100;
       const nH = Math.round(point.nH * 100) / 100;
       const t = Math.round(point.t * 100) / 100;
@@ -86,7 +97,7 @@ const generateTerrainUnit = async (
     }
   }
 
-  const result: ChunkData = { x, y, tiles, terrain, mode };
+  const result: ChunkData = { x, y, tiles, terrain, mode, resources };
 
   // Cache everything locally in RAM
   setLocalCache(localKey, result);
