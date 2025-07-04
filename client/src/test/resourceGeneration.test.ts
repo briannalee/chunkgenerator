@@ -5,10 +5,13 @@ import { GameLogic } from "../logic/GameLogic";
 import { BiomeResourceDensity, BiomeResourceMap, BiomeResourceSettings, ResourceAmountBiomeMultipliers, ResourceAmountRange, ResourceHardnessRange, ResourceRespawnRange, ResourceType } from 'shared/ResourceTypes';
 import { Biome } from 'shared/TerrainTypes'
 import { LandTile, Tile } from 'shared/TileTypes';
+import { INetworkAdapter } from 'network/INetworkAdapter';
+import { NetworkFactory } from 'network/NetworkFactory';
 
 describe("Resource Generation System (Live Server Tests)", () => {
   let gameLogic: GameLogic;
   let testChunks: any[] = [];
+  let adapter: INetworkAdapter;
 
   // Hardcoded chunk coordinates to cover a variety of map areas and edge cases (origin, distant, negative, ocean, etc.)
   let chunkCoordinates = [
@@ -261,7 +264,110 @@ describe("Resource Generation System (Live Server Tests)", () => {
       }
     });
   });
+  describe('Mining Network Interaction', () => {
+    beforeAll(async () => {
+      adapter = NetworkFactory.createAdapter();
+      await adapter.connect();
+      // Wait for connection confirmation from server
+      await new Promise(resolve => {
+        adapter.onMessage((data: any) => data.type === 'connected' && resolve(true));
+      });
+
+    });
+    it('should succeed mining a tile with a resource', async () => {
+      // Find one tile with a resource among loaded chunks
+      let tileWithResource: any | undefined;
+      for (const chunk of testChunks) {
+        tileWithResource = chunk.chunk.tiles.find((t: any) => t.r !== undefined);
+        if (tileWithResource) break;
+      }
+      expect(tileWithResource).toBeDefined();
+      if (!tileWithResource) return;
+
+      // Send mining request
+      adapter.send({
+        type: 'mining',
+        x: tileWithResource.x,
+        y: tileWithResource.y,
+        tool: 'pickaxe' // tool can be hand, pickaxe, or drill
+      });
+
+      // Await miningSuccess response for that tile
+      const miningSuccess = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Timeout waiting for miningSuccess')), 5000);
+
+        const handler = (data: any) => {
+          if (
+            data.type === 'miningSuccess' &&
+            data.x === tileWithResource.x &&
+            data.y === tileWithResource.y
+          ) {
+            clearTimeout(timeout);
+            if (adapter.offMessage) {
+              adapter.offMessage(handler);
+            }
+            resolve(data);
+          }
+        };
+        adapter.onMessage(handler);
+      });
+
+      expect(miningSuccess).toHaveProperty('resource');
+      expect(miningSuccess).toHaveProperty('amount');
+      const miningSuccessData = miningSuccess as { x: number; y: number; resource: any; amount: number };
+      expect(miningSuccessData.x).toBe(tileWithResource.x);
+      expect(miningSuccessData.y).toBe(tileWithResource.y);
+    });
+
+    it('should fail mining a tile without a resource', async () => {
+      // Find one tile without a resource
+      let tileWithoutResource: any | undefined;
+      for (const chunk of testChunks) {
+        tileWithoutResource = chunk.chunk.tiles.find((t: any) => t.r === undefined);
+        if (tileWithoutResource) break;
+      }
+      expect(tileWithoutResource).toBeDefined();
+      if (!tileWithoutResource) return;
+
+      // Send mining request
+      adapter.send({
+        type: 'mining',
+        x: tileWithoutResource.x,
+        y: tileWithoutResource.y,
+        tool: 'hand'
+      });
+
+      // Await miningFailed response for that tile
+      const miningFailed = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Timeout waiting for miningFailed')), 5000);
+
+        const handler = (data: any) => {
+          if (
+            data.type === 'miningFailed' &&
+            data.x === tileWithoutResource.x &&
+            data.y === tileWithoutResource.y
+          ) {
+            clearTimeout(timeout);
+            if (adapter.offMessage) {
+              adapter.offMessage(handler);
+            }
+            resolve(data);
+          }
+        };
+        adapter.onMessage(handler);
+      });
+
+      expect(miningFailed).toMatchObject({
+        type: 'miningFailed',
+        x: tileWithoutResource.x,
+        y: tileWithoutResource.y
+      });
+    });
+  });
+
 });
+
+
 
 // Type guard for land tiles (tiles that can have cliffs)
 function isLandTile(tile: Tile): tile is LandTile {

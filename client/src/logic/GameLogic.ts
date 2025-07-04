@@ -98,9 +98,22 @@ export class GameLogic {
     if (message.type === "chunkData" || message.type === "chunkUpdate") {
       const { x, y, tiles, mode, resources } = message.chunk;
       const chunkKey = `${x},${y}`;
-      if (!tiles || !Array.isArray(tiles[0]) || tiles[0].length < 15 || tiles[0].length > 15) return;
+      if (!tiles || !Array.isArray(tiles[0]) || tiles[0].length < 15 || tiles[0].length > 15) {
+        console.error(`Invalid chunk data from server: ${tiles[0].length}`);
+        return;
+      };
 
       const mappedTiles = TileNormalizer.NormalizeTiles(tiles);
+      
+      if (resources) {
+        Object.entries(resources).forEach(([key, res]) => {
+          const [x, y] = key.split(',').map(Number);
+          const tile = mappedTiles.find((t: Tile) => t.x === x && t.y === y);
+          if (tile) {
+            tile.r = res as ResourceNode;
+          }
+        });
+      }
 
       const chunkData = { x, y, tiles: mappedTiles };
 
