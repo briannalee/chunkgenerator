@@ -10,7 +10,7 @@ describe("TileBlending", () => {
     const baseTile = {
       x: 0, y: 0, h: 0, nH: 0, t: 0, p: 0, stp: 0, c: 0,
       b: 3, w: false,
-      v: 0, vT: 0, sT: 0, iC: false, r: []
+      v: 0, vT: 0, sT: 0, iC: false, r: undefined
     } as LandTile;
     it("returns false if tile biome is not blendable", () => {
       expect(TileBlending.shouldBlendWithNeighbors({ ...baseTile, b: 1 }, {})).toBe(false);

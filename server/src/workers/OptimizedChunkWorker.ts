@@ -111,7 +111,8 @@ if (mode === 'chunk') {
         point.wT || 0,
         v,
         point.vT || 0,
-        point.sT || 0
+        point.sT || 0,
+        point.r ? point.r : undefined
       ]);
     }
   }
