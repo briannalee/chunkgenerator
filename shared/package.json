@@ -10,5 +10,8 @@
   "type": "commonjs",
   "devDependencies": {
     "@types/seedrandom": "^3.0.8"
+  },
+  "dependencies": {
+    "typescript": "^5.8.3"
   }
 }
