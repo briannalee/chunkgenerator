@@ -98,7 +98,7 @@ export class GameLogic {
     if (message.type === "chunkData" || message.type === "chunkUpdate") {
       const { x, y, tiles, mode, resources } = message.chunk;
       const chunkKey = `${x},${y}`;
-      if (!tiles || !Array.isArray(tiles[0]) || tiles[0].length < 16 || tiles[0].length > 16) return;
+      if (!tiles || !Array.isArray(tiles[0]) || tiles[0].length < 15 || tiles[0].length > 15) return;
 
       const mappedTiles = TileNormalizer.NormalizeTiles(tiles);
 
