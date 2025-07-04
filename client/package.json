@@ -11,6 +11,7 @@
     "test:river": "vitest run test/riverData.test.ts",
     "test:blending": "vitest run test/tileBlendingLogic.test.ts",
     "test:blending-live": "vitest run test/tileBlendingLive.test.ts",
+    "test:resources": "vitest run test/resourceGeneration.test.ts",
     "test:coverage": "vitest run --coverage"
   },
   "keywords": [],
