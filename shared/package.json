@@ -6,5 +6,8 @@
     ".": "./dist/index.js",
     "./TerrainTypes": "./dist/TerrainTypes.js"
   },
-  "type": "commonjs"
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/seedrandom": "^3.0.8"
+  }
 }

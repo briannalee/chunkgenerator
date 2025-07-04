@@ -1,4 +1,4 @@
-import { WaterTile, LandTile, BaseTile} from "shared/TileTypes";
+import { WaterTile, LandTile, BaseTile, Tile} from "shared/TileTypes";
 import { WaterType, VegetationType, SoilType } from "shared/TerrainTypes";
 
 export class TileNormalizer {
@@ -7,7 +7,7 @@ export class TileNormalizer {
    * @param tile - The tile to normalize.
    * @returns The normalized tile object.
    */
-  public static NormalizeTile(tile: any): WaterTile | LandTile {
+  public static NormalizeTile(tile: any): Tile {
     if (Array.isArray(tile)) {
       const isWater = tile[4] === 1;
 
@@ -20,7 +20,9 @@ export class TileNormalizer {
         p: tile[6],
         b: tile[8],
         stp: tile[7],
-        c: tile[9]
+        c: tile[9],
+        w: isWater,
+        r: undefined
       };
 
       if (isWater) {
@@ -50,7 +52,7 @@ export class TileNormalizer {
    * @param tiles - The array of tiles to normalize.
    * @returns An array of normalized tile objects.
    */
-   public static NormalizeTiles(tiles: any[]): any[] {
+   public static NormalizeTiles(tiles: any[]): Tile[] {
     return tiles.map(this.NormalizeTile);
   }
 }
