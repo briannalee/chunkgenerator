@@ -1,3 +1,4 @@
+import { ResourceNode } from "./ResourceTypes";
 import { Biome, ColorIndex, SoilType, VegetationType, WaterType } from "./TerrainTypes";
 
 export interface BaseTile {
@@ -11,6 +12,7 @@ export interface BaseTile {
   stp: number; // steepness
   c: ColorIndex;
   w: boolean; // is water
+  r?: ResourceNode[]; // resources present at this point
 }
 
 export interface WaterTile extends BaseTile {
@@ -44,5 +46,6 @@ export interface TerrainPoint {
   stp: number;    // steepness (0-1)
   iC?: boolean;    // is cliff
   c: ColorIndex;  // color index for rendering
+  r?: ResourceNode[]; // resources present at this point
   _possibleBeach?: Boolean; // used for beach detection, not sent to client
 }

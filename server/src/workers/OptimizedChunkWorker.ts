@@ -3,6 +3,7 @@ import { WorldGenerator } from '../world/WorldGenerator';
 import { ChunkData } from 'shared/ChunkTypes';
 import Redis from 'ioredis';
 import { TerrainPoint } from 'shared/TileTypes';
+import { ResourceNode } from 'shared/ResourceTypes';
 
 // Initialize Redis for worker-level caching
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -18,7 +19,7 @@ subClient.on('message', (channel, message) => {
   if (channel === 'chunk_invalidate') {
     const { x, y } = JSON.parse(message);
     const localKey = `${x},${y}`;
-    
+
     // Delete from worker's local cache
     localCache.delete(localKey);
   }
@@ -38,19 +39,19 @@ const generateTerrainUnit = async (
   let cacheKey: string;
   let localKey: string;
 
-if (mode === 'chunk') {
-  cacheKey = `worker_chunk:${x}:${y}`;
-  localKey = `${x},${y}`;
-} else if (mode === 'row' || mode === 'column') {
-  const dir = mode === 'row' ? 'row' : 'col';
-  cacheKey = `worker_line:${dir}:${x}:${y}`;
-  localKey = `${x},${y}`;
-} else if (mode === 'point') {
-  cacheKey = `worker_point:${x}:${y}`;
-  localKey = `${x},${y}`;
-} else {
-  throw new Error(`Unsupported RequestMode: ${mode}`);
-}
+  if (mode === 'chunk') {
+    cacheKey = `worker_chunk:${x}:${y}`;
+    localKey = `${x},${y}`;
+  } else if (mode === 'row' || mode === 'column') {
+    const dir = mode === 'row' ? 'row' : 'col';
+    cacheKey = `worker_line:${dir}:${x}:${y}`;
+    localKey = `${x},${y}`;
+  } else if (mode === 'point') {
+    cacheKey = `worker_point:${x}:${y}`;
+    localKey = `${x},${y}`;
+  } else {
+    throw new Error(`Unsupported RequestMode: ${mode}`);
+  }
 
   // Check local in-memory cache first
   if (localCache.has(localKey)) {
@@ -85,7 +86,19 @@ if (mode === 'chunk') {
     terrain = col.map(pt => [pt]); // 1 column
   }
 
+  // Get resources for the generated terrain
+  const resources: Record<string, ResourceNode[]> = {};
+  terrain.forEach(row => {
+    row.forEach(point => {
+      if (point.r?.length) {
+        resources[`${point.x},${point.y}`] = point.r;
+      }
+    });
+  });
+
+
   // Flatten terrain points into tile array
+  // Follows the structure of the original TileTypes
   const tiles: any[] = [];
   for (let row of terrain) {
     for (let point of row) {
@@ -97,26 +110,26 @@ if (mode === 'chunk') {
       const v = point.v ? Math.round(point.v * 100) / 100 : 0;
 
       tiles.push([
-        point.x,
-        point.y,
-        h,
-        nH,
-        point.w ? 1 : 0,
-        t,
-        p,
-        stp,
-        point.b,
-        point.c,
-        point.iC ? 1 : 0,
-        point.wT || 0,
-        v,
-        point.vT || 0,
-        point.sT || 0
+        point.x,        // 0: x
+        point.y,        // 1: y
+        h,             // 2: h
+        nH,            // 3: nH
+        point.w ? 1 : 0, // 4: w (boolean as number)
+        t,             // 5: t
+        p,             // 6: p
+        stp,           // 7: stp
+        point.b,       // 8: b (Biome)
+        point.c,       // 9: c (ColorIndex)
+        point.iC ? 1 : 0, // 19: iC (boolean as number)
+        point.wT || 0, // 11: wT (WaterType)
+        v,             // 12: v (Vegetation amount)
+        point.vT || 0, // 13: vT (VegetationType)
+        point.sT || 0  // 14: sT (SoilType)
       ]);
     }
   }
-
-  const result: ChunkData = { x, y, tiles, terrain, mode };
+   
+  const result: ChunkData = { x, y, tiles, terrain, mode, resources };
 
   // Cache full chunks in Redis
   if (mode === 'chunk') {

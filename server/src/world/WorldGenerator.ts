@@ -2,6 +2,8 @@ import { PriorityQueue } from '../pathfinding/PriorityQueue';
 import { NoiseGenerator } from './NoiseGenerator';
 import { Biome, WaterType, VegetationType, SoilType, ColorIndex } from 'shared/TerrainTypes';
 import { TerrainPoint } from 'shared/TileTypes';
+import { ResourceNode, ResourceType } from 'shared/ResourceTypes';
+import { Random } from '../utilities/Random';
 
 export class WorldGenerator {
   private noiseGen: NoiseGenerator;
@@ -15,8 +17,14 @@ export class WorldGenerator {
   // Cache size limits to prevent memory bloat
   private readonly MAX_CACHE_SIZE = 10000;
 
+  // Seed
+  private seed: number = 12345; // Default seed, can be overridden
+
   constructor(seed?: number) {
     this.noiseGen = new NoiseGenerator(seed);
+    if (seed) {
+      this.seed = seed;
+    }
   }
 
   generateChunk(chunkX: number, chunkY: number, chunkSize: number = 10): TerrainPoint[][] {
@@ -49,6 +57,7 @@ export class WorldGenerator {
     }
 
     this.postProcessChunk(terrain, chunkSize);
+    this.generateResources(terrain, chunkSize);
     this.manageCacheSize(); // Prevent memory bloat
     return terrain;
   }
@@ -149,6 +158,257 @@ export class WorldGenerator {
     }
   }
 
+  private generateResources(terrain: TerrainPoint[][], chunkSize: number): void {
+    const chunkX = Math.floor(terrain[0][0].x / chunkSize);
+    const chunkY = Math.floor(terrain[0][0].y / chunkSize);
+    const rng = new Random(this.getChunkSeed(chunkX, chunkY));
+
+    // Determine resource density based on biome composition
+    const resourceDensity = this.calculateResourceDensity(terrain, chunkSize);
+    const resourceCount = Math.floor(rng.next() * 3 * resourceDensity) + 2; // 2-5 resources, scaled by density
+
+    for (let i = 0; i < resourceCount; i++) {
+      // Find a suitable position for the resource
+      const position = this.findResourcePosition(terrain, chunkSize, rng);
+
+      if (!position) continue;
+
+      const { x, y } = position;
+      const tile = terrain[y][x];
+
+      // Determine resource type based on biome and terrain
+      const resourceType = this.determineResourceType(tile, rng);
+      if (!resourceType) continue;
+      
+      // Create resource node
+      const resourceNode: ResourceNode = {
+        type: resourceType,
+        amount: this.getResourceAmount(resourceType, tile, rng),
+        remaining: 0, // Will be set same as amount
+        hardness: this.getResourceHardness(resourceType, tile, rng),
+        x: tile.x,
+        y: tile.y,
+        respawnTime: this.getRespawnTime(resourceType, rng)
+      };
+      resourceNode.remaining = resourceNode.amount;
+
+      // Attach resource to the tile
+      if (terrain[y][x].r) {
+        terrain[y][x].r.push(resourceNode); // Add to existing resources
+      } else {
+        terrain[y][x].r = [resourceNode]; // Initialize resources array
+      }
+    }
+  }
+
+  private getChunkSeed(chunkX: number, chunkY: number): number {
+    // Create a deterministic seed for this chunk
+    return this.seed + chunkX * 49632 + chunkY * 325176;
+  }
+
+  private calculateResourceDensity(terrain: TerrainPoint[][], chunkSize: number): number {
+    let density = 0;
+    let count = 0;
+
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const tile = terrain[y][x];
+        if (tile.w) continue; // Skip water tiles
+
+        // Add density based on biome
+        density += this.getBiomeResourceDensity(tile.b);
+        count++;
+      }
+    }
+
+    return count > 0 ? density / count : 0;
+  }
+
+  private getBiomeResourceDensity(biome: Biome): number {
+    // Return a density multiplier (0-1) for each biome
+    switch (biome) {
+      case Biome.MOUNTAIN:
+      case Biome.MOUNTAIN_SNOW:
+        return 1.2; // Mountains are rich in minerals
+      case Biome.JUNGLE:
+      case Biome.DENSE_FOREST:
+        return 0.8; // Forests have wood and some minerals
+      case Biome.DESERT:
+        return 0.6; // Deserts have some resources
+      case Biome.TUNDRA:
+        return 0.4; // Tundras have few resources
+      case Biome.BEACH:
+        return 0.3; // Beaches have very few resources
+      default:
+        return 0.7; // Default density
+    }
+  }
+
+  private findResourcePosition(terrain: TerrainPoint[][], chunkSize: number, rng: Random): { x: number, y: number } | null {
+    const maxAttempts = 20;
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      const x = Math.floor(rng.next() * chunkSize);
+      const y = Math.floor(rng.next() * chunkSize);
+      const tile = terrain[y][x];
+
+      // Skip if water, cliff, or already has a resource
+      if (tile.w || tile.iC || (tile.r && tile.r?.length > 0)) continue;
+
+      // Additional checks based on terrain
+      if (tile.stp > 0.6) continue; // Too steep
+      return { x, y };
+    }
+
+    return null; // No suitable position found
+  }
+
+  private determineResourceType(tile: TerrainPoint, rng: Random): ResourceType | null {
+    const rand = rng.next();
+    const height = tile.nH; // Future use: height-based resource distribution
+    const temperature = tile.t; // Future use: temperature-based resource distribution
+    const precipitation = tile.p; // Future use: precipitation-based resource distribution
+
+    // First, check for special cases
+    if (tile.b === Biome.MOUNTAIN_SNOW) {
+      return rand < 0.7 ? 'iron' : 'crystal';
+    }
+
+    if (tile.b === Biome.BEACH) {
+      return rand < 0.8 ? null : 'stone'; // Beaches mostly have no resources
+    }
+
+    // General biome-based distribution
+    switch (tile.b) {
+      case Biome.MOUNTAIN:
+        if (rand < 0.5) return 'iron';
+        if (rand < 0.8) return 'stone';
+        return 'coal';
+
+      case Biome.JUNGLE:
+        if (rand < 0.6) return 'wood';
+        if (rand < 0.9) return 'oil';
+        return 'gold';
+
+      case Biome.DENSE_FOREST:
+      case Biome.FOREST:
+        if (rand < 0.8) return 'wood';
+        if (rand < 0.95) return 'stone';
+        return 'coal';
+
+      case Biome.DESERT:
+        if (rand < 0.7) return 'stone';
+        if (rand < 0.9) return 'oil';
+        return 'crystal';
+
+      case Biome.TUNDRA:
+        if (rand < 0.6) return 'stone';
+        if (rand < 0.9) return 'coal';
+        return 'iron';
+
+      case Biome.GRASSLAND:
+      case Biome.SAVANNA:
+        if (rand < 0.5) return 'wood';
+        if (rand < 0.8) return 'stone';
+        if (rand < 0.95) return 'coal';
+        return 'iron';
+
+      case Biome.LAKE:
+        return rand < 0.3 ? 'water' : null;
+
+      default:
+        if (rand < 0.7) return 'stone';
+        return 'wood';
+    }
+  }
+
+  private getResourceAmount(type: ResourceType, tile: TerrainPoint, rng: Random): number {
+    // Base amounts with some randomness and biome modifiers
+    const baseAmounts: Record<ResourceType, [number, number]> = {
+      'wood': [50, 100],
+      'stone': [30, 60],
+      'iron': [20, 40],
+      'gold': [10, 20],
+      'coal': [40, 80],
+      'crystal': [5, 15],
+      'oil': [15, 30],
+      'water': [100, 200]
+    };
+
+    const [min, max] = baseAmounts[type];
+    let amount = Math.floor(min + rng.next() * (max - min));
+
+    // Apply biome modifiers
+    switch (tile.b) {
+      case Biome.MOUNTAIN:
+      case Biome.MOUNTAIN_SNOW:
+        if (type === 'iron' || type === 'stone' || type === 'crystal') {
+          amount *= 1.5;
+        }
+        break;
+      case Biome.JUNGLE:
+        if (type === 'wood') {
+          amount *= 1.3;
+        }
+        break;
+      case Biome.DESERT:
+        if (type === 'oil' || type === 'crystal') {
+          amount *= 1.2;
+        }
+        break;
+    }
+
+    return Math.floor(amount);
+  }
+
+  private getResourceHardness(type: ResourceType, tile: TerrainPoint, rng: Random): number {
+    // Base hardness with slight randomness
+    const baseHardness: Record<ResourceType, [number, number]> = {
+      'wood': [0.1, 0.2],
+      'stone': [0.5, 0.7],
+      'iron': [0.7, 0.8],
+      'gold': [0.8, 0.9],
+      'coal': [0.4, 0.6],
+      'crystal': [0.9, 1.0],
+      'oil': [0.6, 0.8],
+      'water': [0.0, 0.1]
+    };
+
+    const [min, max] = baseHardness[type];
+    let hardness = min + rng.next() * (max - min);
+
+    // Terrain modifiers
+    if (tile.stp > 0.5) {
+      hardness += 0.1; // Slightly harder to mine on slopes
+    }
+
+    return Math.min(1, Math.max(0, hardness));
+  }
+
+  private getRespawnTime(type: ResourceType, rng: Random): number | undefined {
+    if (type === 'water') return 0; // Water replenishes instantly
+
+    // Other resources respawn after some time (in milliseconds)
+    const baseTimes: Record<ResourceType, [number, number] | undefined> = {
+      'wood': [1800000, 3600000],    // 30-60 minutes
+      'stone': [3600000, 7200000],   // 1-2 hours
+      'iron': [7200000, 14400000],   // 2-4 hours
+      'gold': [14400000, 28800000],  // 4-8 hours
+      'coal': [5400000, 10800000],   // 1.5-3 hours
+      'crystal': [21600000, 43200000], // 6-12 hours
+      'oil': [10800000, 21600000],   // 3-6 hours
+      'water': undefined
+    };
+
+    const times = baseTimes[type];
+    if (!times) return undefined;
+
+    const [min, max] = times;
+    return min + Math.floor(rng.next() * (max - min));
+  }
+
   private batchGenerateClimate(coordinates: Array<{ x: number, y: number, worldX: number, worldY: number }>): void {
     // Batch generate temperature and precipitation for all coordinates
     for (const coord of coordinates) {
@@ -194,7 +454,8 @@ export class WorldGenerator {
       stp: steepness,
       b: Biome.GRASSLAND,
       c: ColorIndex.GRASSLAND,
-      _possibleBeach: false
+      _possibleBeach: false,
+      r: [],
     };
 
     this.assignTerrainProperties(point);
