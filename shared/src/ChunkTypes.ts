@@ -1,3 +1,4 @@
+import { ResourceNode } from "./ResourceTypes";
 import { TerrainPoint } from "./TileTypes";
 
 export type ChunkData = {
@@ -6,4 +7,5 @@ export type ChunkData = {
   tiles: any[];
   terrain?: TerrainPoint[][];
   mode?: 'chunk' | 'row' | 'column'; 
+  resources?: Record<string, ResourceNode>;
 };

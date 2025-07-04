@@ -146,12 +146,9 @@ export class GameScene extends Phaser.Scene {
         const tileInChunkY = tileY % CHUNK_SIZE;
         const tileIndex = tileInChunkY * CHUNK_SIZE + tileInChunkX;
 
-        if (chunk.tiles[tileIndex]?.r?.length > 0) {
-
-          resourceText = chunk.tiles[tileIndex].r
-            .flatMap((group: ResourceNode[]) => group)
-            .map((res: ResourceNode) => `${res.type} - ${res.remaining}`)
-            .join(", ");
+        if (chunk.tiles[tileIndex]?.r) {
+          const res = chunk.tiles[tileIndex].r;
+          resourceText = `${res.type} - ${res.remaining}`;
         }
       }
 

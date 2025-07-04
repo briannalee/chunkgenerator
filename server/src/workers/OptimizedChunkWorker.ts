@@ -6,7 +6,6 @@ import { TerrainPoint } from 'shared/TileTypes';
 
 // Initialize Redis for worker-level caching
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const redis = new Redis(REDIS_URL);
 const subClient = new Redis(REDIS_URL);
 
 // Initialize world generator with the same seed for consistency
@@ -17,8 +16,8 @@ subClient.subscribe('chunk_invalidate');
 subClient.on('message', (channel, message) => {
   if (channel === 'chunk_invalidate') {
     const { x, y } = JSON.parse(message);
-    const localKey = `${x},${y}`;
-    
+    const localKey = `chunk:${x},${y}`;
+
     // Delete from worker's local cache
     localCache.delete(localKey);
   }
@@ -35,40 +34,11 @@ const generateTerrainUnit = async (
   mode: 'chunk' | 'row' | 'column'
 ): Promise<ChunkData> => {
   // Determine cache keys
-  let cacheKey: string;
-  let localKey: string;
-
-if (mode === 'chunk') {
-  cacheKey = `worker_chunk:${x}:${y}`;
-  localKey = `${x},${y}`;
-} else if (mode === 'row' || mode === 'column') {
-  const dir = mode === 'row' ? 'row' : 'col';
-  cacheKey = `worker_line:${dir}:${x}:${y}`;
-  localKey = `${x},${y}`;
-} else if (mode === 'point') {
-  cacheKey = `worker_point:${x}:${y}`;
-  localKey = `${x},${y}`;
-} else {
-  throw new Error(`Unsupported RequestMode: ${mode}`);
-}
+  const localKey = `${mode}:${x},${y}`;
 
   // Check local in-memory cache first
   if (localCache.has(localKey)) {
     return localCache.get(localKey)!;
-  }
-
-  // Check Redis only for full chunks
-  if (mode === 'chunk') {
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        const chunk = JSON.parse(cached);
-        setLocalCache(localKey, chunk);
-        return chunk;
-      }
-    } catch (error) {
-      console.error('Redis cache error in worker:', error);
-    }
   }
 
   // Generate terrain
@@ -112,21 +82,11 @@ if (mode === 'chunk') {
         v,
         point.vT || 0,
         point.sT || 0,
-        point.r ? point.r : undefined
       ]);
     }
   }
 
   const result: ChunkData = { x, y, tiles, terrain, mode };
-
-  // Cache full chunks in Redis
-  if (mode === 'chunk') {
-    try {
-      await redis.setex(cacheKey, 1800, JSON.stringify(result)); // 30 minutes TTL
-    } catch (error) {
-      console.error('Redis set error in worker:', error);
-    }
-  }
 
   // Cache everything locally in RAM
   setLocalCache(localKey, result);
@@ -168,7 +128,6 @@ parentPort?.on('message', async (data) => {
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  await redis.quit();
   subClient.quit();
   process.exit(0);
 });
