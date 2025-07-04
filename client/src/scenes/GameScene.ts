@@ -141,21 +141,27 @@ export class GameScene extends Phaser.Scene {
 
       // Get resource text
       let resourceText = "None";
+      let steepnessText = "0";
       if (chunk) {
-        const tileInChunkX = tileX % CHUNK_SIZE;
-        const tileInChunkY = tileY % CHUNK_SIZE;
+        const tileInChunkX = ((tileX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        const tileInChunkY = ((tileY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
         const tileIndex = tileInChunkY * CHUNK_SIZE + tileInChunkX;
 
         if (chunk.tiles[tileIndex]?.r) {
           const res = chunk.tiles[tileIndex].r;
           resourceText = `${res.type} - ${res.remaining}`;
         }
+
+        if (chunk.tiles[tileIndex]?.stp) {
+          steepnessText = `${chunk.tiles[tileIndex].stp}`;
+        }
       }
 
       this.coordText.setText(
         `X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}\n` +
         `Tile: (${tileX}, ${tileY})\n` +
-        `Resource: ${resourceText}`
+        `Resource: ${resourceText}\n` +
+        `Steepness: ${steepnessText}`
       );
     }
   }
