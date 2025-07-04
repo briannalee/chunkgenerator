@@ -1,12 +1,13 @@
-export type ResourceType = 
-  | 'iron' 
-  | 'gold' 
-  | 'coal' 
-  | 'stone' 
-  | 'wood' 
-  | 'crystal' 
-  | 'oil' 
-  | 'water';
+export enum ResourceType {
+  Iron = 'iron',
+  Gold = 'gold',
+  Coal = 'coal',
+  Stone = 'stone',
+  Wood = 'wood',
+  Crystal = 'crystal',
+  Oil = 'oil',
+  Water = 'water'
+}
 
 export interface ResourceNode {
   type: ResourceType;

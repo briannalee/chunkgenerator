@@ -8,6 +8,7 @@ import { Worker } from "worker_threads";
 import path from "path";
 import Redis from 'ioredis';
 import { Pool } from 'pg';
+import { ResourceType } from "shared/ResourceTypes";
 dotenv.config();
 
 const app = express();
@@ -30,6 +31,9 @@ const REDIS_URL = process.env.REDIS_URL || `redis://localhost:6379/${REDIS_DB}`
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://chunkuser:chunkpass@localhost:5432/chunkgame';
 const DEBUG_MODE = process.env.DEBUG_MODE || false;
 
+// Tracks ongoing chunk generation promises by chunk key "x,y"
+const inProgressChunks = new Map<string, Promise<ChunkData>>();
+
 // Redis clients
 const redis = new Redis(REDIS_URL);
 const pubClient = new Redis(REDIS_URL);
@@ -37,9 +41,17 @@ const subClient = new Redis(REDIS_URL);
 
 // Subscribe to player updates channel
 subClient.subscribe('player_updates');
+subClient.subscribe('chunk_invalidate');
 subClient.on('message', async (channel, message) => {
+  if (channel === 'chunk_invalidate') {
+    const { x, y } = JSON.parse(message);
+    await redis.del(`chunk:${x}:${y}`);
+    if (DEBUG_MODE) {
+      console.log(`Invalidated chunk (${x}, ${y}) from pub-sub`);
+    }
+  }
+
   if (channel === 'player_updates') {
-    // Broadcast to all clients connected to THIS worker
     await broadcastPlayerUpdate();
   }
 });
@@ -148,6 +160,45 @@ function selectWorker() {
   );
 }
 
+async function getOrGenerateChunk(x: number, y: number, mode: string): Promise<ChunkData> {
+  if (mode !== 'chunk') {
+    // For rows/columns, just generate directly (no concurrency cache)
+    return generateChunkAsync(x, y, mode, null);
+  }
+
+  const key = `${x},${y}`;
+
+  if (inProgressChunks.has(key)) {
+    return inProgressChunks.get(key)!;
+  }
+
+  const generationPromise = (async () => {
+    try {
+      // Check Redis cache first
+      let chunk = await getCachedChunk(x, y);
+
+      if (!chunk) {
+        // Check DB
+        chunk = await findChunkInDB(x, y);
+      }
+
+      if (!chunk) {
+        // Generate new chunk, save it to DB and cache
+        chunk = await generateChunkAsync(x, y, mode, null);
+        await saveChunkToDB(chunk);
+        await setCachedChunk(chunk);
+      }
+
+      return chunk;
+    } finally {
+      inProgressChunks.delete(key);
+    }
+  })();
+
+  inProgressChunks.set(key, generationPromise);
+  return generationPromise;
+}
+
 // Redis cache operations
 const CACHE_TTL = 3600; // 1 hour
 
@@ -196,7 +247,18 @@ async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
 }
 
 async function saveChunkToDB(chunk: ChunkData): Promise<void> {
+  const key = `chunk:${chunk.x}:${chunk.y}`;
+  let existed = false;
+
   try {
+    const cached = await redis.exists(key);
+    if (cached) {
+      existed = true;
+    } else {
+      const dbChunk = await findChunkInDB(chunk.x, chunk.y);
+      if (dbChunk) existed = true;
+    }
+
     await pgPool.query(
       `INSERT INTO chunks (x, y, tiles, terrain) 
        VALUES ($1, $2, $3, $4) 
@@ -206,13 +268,15 @@ async function saveChunkToDB(chunk: ChunkData): Promise<void> {
       [chunk.x, chunk.y, JSON.stringify(chunk.tiles), JSON.stringify(chunk.terrain)]
     );
 
-    await redis.del(`chunk:${chunk.x}:${chunk.y}`);
+    await redis.del(key);
 
-    // 3. Notify all workers to clear local caches
-    await pubClient.publish(
-      'chunk_invalidate',
-      JSON.stringify({ x: chunk.x, y: chunk.y })
-    );
+    if (existed) {
+      // Notify workers to clear their local caches
+      await pubClient.publish(
+        'chunk_invalidate',
+        JSON.stringify({ x: chunk.x, y: chunk.y })
+      );
+    }
   } catch (error) {
     console.error('Database save error:', error);
     throw error;
@@ -329,36 +393,14 @@ async function handleMessage(ws: any, message: any, playerId: string) {
     }
 
     try {
-      let chunk: ChunkData | null = null;
-
-      if (mode === "chunk") {
-        // Check Redis cache first
-        chunk = await getCachedChunk(x, y);
-
-        if (!chunk) {
-          // Check PostgreSQL fallback
-          chunk = await findChunkInDB(x, y);
-
-          if (chunk) {
-            await setCachedChunk(chunk); // cache it in Redis
-          } else {
-            // Generate full chunk with worker
-            const generatedChunk = await generateChunkAsync(x, y, mode, ws);
-            await saveChunkToDB(generatedChunk);
-            await setCachedChunk(generatedChunk);
-            chunk = generatedChunk;
-          }
-        }
-      } else {
-        // Directly generate row/column using worker
-        chunk = await await generateChunkAsync(x, y, mode, ws);
-      }
+      const chunk = await getOrGenerateChunk(x, y, mode);
 
       const clientChunk = {
         x: chunk.x,
         y: chunk.y,
         tiles: chunk.tiles,
         mode: chunk.mode,
+        resources: chunk.resources
       };
 
       const chunkResponse = { type: "chunkData", chunk: clientChunk };
@@ -379,6 +421,7 @@ async function handleMessage(ws: any, message: any, playerId: string) {
     ws.send(JSON.stringify({ type: "handshook", id: playerId, players }));
   }
 }
+
 
 // Broadcast player updates
 async function broadcastPlayerUpdate() {
