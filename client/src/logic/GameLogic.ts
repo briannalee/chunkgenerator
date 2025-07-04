@@ -3,6 +3,8 @@ import { ChunkData } from "shared/ChunkTypes";
 import { Tile, WaterTile, LandTile } from "shared/TileTypes";
 import { INetworkAdapter } from "../network/INetworkAdapter";
 import { NetworkFactory } from "../network/NetworkFactory";
+import { ResourceNode, ResourceType } from "shared/ResourceTypes";
+import { TileNormalizer } from "./NormalizeTiles";
 
 export interface PlayerData {
   x: number;
@@ -93,63 +95,84 @@ export class GameLogic {
 
   private handleNetworkMessage(data: unknown) {
     const message = data as any;
-    if (message.type === "chunkData") {
-      const { x, y, tiles, mode } = message.chunk;
+    if (message.type === "chunkData" || message.type === "chunkUpdate") {
+      const { x, y, tiles, mode, resources } = message.chunk;
       const chunkKey = `${x},${y}`;
-      if (!tiles || !Array.isArray(tiles[0]) || tiles.length === 0) return;
+      if (!tiles || !Array.isArray(tiles[0]) || tiles[0].length < 15 || tiles[0].length > 15) return;
 
-      const mappedTiles = tiles.map((t: any) => {
-        const isWater = t[4] === 1;
-        const baseProperties = {
-          x: t[0],
-          y: t[1],
-          h: t[2],
-          nH: t[3],
-          t: t[5],
-          p: t[6],
-          stp: t[7],
-          b: t[8] as Biome,
-          c: t[9] as ColorIndex,
-          iC: t[10] === 1,
-          w: isWater
-        };
-        return isWater
-          ? { ...baseProperties, wT: t[11] as WaterType } as WaterTile
-          : {
-            ...baseProperties,
-            v: t[12],
-            vT: t[13] as VegetationType,
-            sT: t[14] as SoilType
-          } as LandTile;
-      });
+      const mappedTiles = TileNormalizer.NormalizeTiles(tiles);
+      
+      if (resources) {
+        Object.entries(resources).forEach(([key, res]) => {
+          const [x, y] = key.split(',').map(Number);
+          const tile = mappedTiles.find((t: Tile) => t.x === x && t.y === y);
+          if (tile) {
+            if (tile.r) {
+              tile.r.push(res as ResourceNode);
+            } else {
+              tile.r = [res as ResourceNode];
+            }
+          }
+        });
+      }
 
       const chunkData = { x, y, tiles: mappedTiles };
 
       if (mode === "chunk") {
-        // Full chunk - store in main chunks and process
         this.chunks[chunkKey] = chunkData;
         this.processChunkData(chunkData);
         this.loadedChunks.add(chunkKey);
         this.checkPendingChunks();
-      } else if (mode === "row" || mode === "column" || mode === "point") {
-        // Border data - store in border cache using world coordinates as key
-        // The server sends world coordinates, so use them directly
+      } else {
         const worldKey = `${x},${y}`;
         this.borderCache.set(worldKey, chunkData);
       }
 
-      // Remove from pending using the correct key
-      if (mode === "chunk") {
-        this.pendingChunks.delete(chunkKey);
-      } else {
-        this.pendingChunks.delete(`${x},${y}`); // World coordinates for border requests
-      }
+      // Remove from pending
+      const pendingKey = mode === "chunk" ? chunkKey : `${x},${y}`;
+      this.pendingChunks.delete(pendingKey);
+    }
+    else if (message.type === "miningSuccess") {
+      this.handleMiningUpdate(
+        message.x,
+        message.y,
+        message.resource,
+        message.amount
+      );
     }
     else if (message.type === "connected") {
       this.playerId = message.id;
       this.updatePlayers(message.players);
-    } else if (message.type === "playerUpdate") {
+    }
+    else if (message.type === "playerUpdate") {
       this.updatePlayers(message.players);
+    }
+  }
+
+  private handleMiningUpdate(x: number, y: number, resourceType: ResourceType, amount: number) {
+    // Convert world coordinates to chunk coordinates
+    const chunkSize = 10;
+    const chunkX = Math.floor(x / chunkSize);
+    const chunkY = Math.floor(y / chunkSize);
+    const tileX = x % chunkSize;
+    const tileY = y % chunkSize;
+    const chunkKey = `${chunkX},${chunkY}`;
+
+    const chunk = this.chunks[chunkKey];
+    if (!chunk) return;
+
+    // Find the specific tile
+    const tileIndex = tileY * chunkSize + tileX;
+    if (tileIndex >= chunk.tiles.length) return;
+
+    const tile = chunk.tiles[tileIndex];
+
+    // Update resource data
+    if (tile.r) {
+      const resource = tile.r.find((r: ResourceNode) => r.type === resourceType);
+      if (resource) {
+        resource.remaining = Math.max(0, resource.remaining - amount);
+      }
     }
   }
 

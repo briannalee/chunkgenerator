@@ -5,8 +5,9 @@ import { ChunkData } from "shared/ChunkTypes";
 import { ColorCalculations } from "../logic/ColorCalculations";
 import { TileVariation } from "../logic/TileVariation";
 import { TileBlending } from "../logic/TileBlending";
+import { ResourceNode } from "shared/ResourceTypes";
 
-const DEBUG_MODE = true; 
+const DEBUG_MODE = true;
 
 
 export class GameScene extends Phaser.Scene {
@@ -129,11 +130,36 @@ export class GameScene extends Phaser.Scene {
     this.renderPlayers();
 
     if (DEBUG_MODE) {
-      const chunkX = Math.floor(this.player.x / (CHUNK_SIZE * TILE_SIZE));
-      const chunkY = Math.floor(this.player.y / (CHUNK_SIZE * TILE_SIZE));
       const tileX = Math.floor(this.player.x / TILE_SIZE);
       const tileY = Math.floor(this.player.y / TILE_SIZE);
-      this.coordText.setText(`X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}, Tile: (${tileX}, ${tileY}), Chunk: (${chunkX}, ${chunkY})`);
+
+      // Find the current tile
+      const chunkX = Math.floor(tileX / CHUNK_SIZE);
+      const chunkY = Math.floor(tileY / CHUNK_SIZE);
+      const chunkKey = `${chunkX},${chunkY}`;
+      const chunk = this.gameLogic.chunks[chunkKey];
+
+      // Get resource text
+      let resourceText = "None";
+      if (chunk) {
+        const tileInChunkX = tileX % CHUNK_SIZE;
+        const tileInChunkY = tileY % CHUNK_SIZE;
+        const tileIndex = tileInChunkY * CHUNK_SIZE + tileInChunkX;
+
+        if (chunk.tiles[tileIndex]?.r?.length > 0) {
+
+          resourceText = chunk.tiles[tileIndex].r
+            .flatMap((group: ResourceNode[]) => group)
+            .map((res: ResourceNode) => `${res.type} - ${res.remaining}`)
+            .join(", ");
+        }
+      }
+
+      this.coordText.setText(
+        `X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}\n` +
+        `Tile: (${tileX}, ${tileY})\n` +
+        `Resource: ${resourceText}`
+      );
     }
   }
 

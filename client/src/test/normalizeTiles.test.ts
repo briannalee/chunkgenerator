@@ -70,7 +70,7 @@ describe('Tile Normalization Tests', () => {
         iC: false,
         v: 0.7,
         vT: VegetationType.GRASS,
-        sT: SoilType.PEAT
+        sT: SoilType.PEAT,
       };
       const normalized = TileNormalizer.NormalizeTile(objectTile);
       expect(normalized).toBe(objectTile);
@@ -88,7 +88,7 @@ describe('Tile Normalization Tests', () => {
         stp: 0.1,
         b: Biome.OCEAN_SHALLOW,
         c: ColorIndex.OCEAN_SHALLOW,
-        wT: WaterType.RIVER
+        wT: WaterType.RIVER,
       };
       const normalized = TileNormalizer.NormalizeTile(objectTile);
       expect(normalized).toBe(objectTile);
