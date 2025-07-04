@@ -28,6 +28,7 @@ echo "Running init.sql..."
 psql -U postgres -d chunkgame -f ./chunkgenerator/init_superuser.sql
 psql -U chunkuser -d chunkgame -f ./chunkgenerator/init_schema.sql
 
+
 # Start the server in the background
 cd ./chunkgenerator/server
 npm run start &

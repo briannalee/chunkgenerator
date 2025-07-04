@@ -67,33 +67,52 @@ const pgPool = new Pool({
 
 // Initialize database schema
 async function initDatabase() {
-  try {
-    await pgPool.query(`
-      CREATE TABLE IF NOT EXISTS chunks (
-        x INTEGER NOT NULL,
-        y INTEGER NOT NULL,
-        tiles JSONB NOT NULL,
-        terrain JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (x, y)
-      );
-      CREATE INDEX IF NOT EXISTS idx_chunks_coords ON chunks(x, y);
-    `);
+  const maxAttempts = 10;
+  const delayMs = 1000;
+  let attempt = 0;
 
-    if (DEBUG_MODE) {
-      // Clear chunks table in debug mode
-      await pgPool.query(`TRUNCATE TABLE chunks;`);
-      console.warn('DEBUG MODE: chunks table truncated');
+  while (attempt < maxAttempts) {
+    try {
+      attempt++;
 
-      // Clear Redis cache
-      await clearRedis('*chunk*');
-      await clearRedis('*player*');
-      console.warn('DEBUG MODE: Redis cache cleared');
+      // Just a quick connection test
+      await pgPool.query('SELECT 1');
+
+      // Now run actual schema setup
+      await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS chunks (
+          x INTEGER NOT NULL,
+          y INTEGER NOT NULL,
+          tiles JSONB NOT NULL,
+          terrain JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (x, y)
+        );
+        CREATE INDEX IF NOT EXISTS idx_chunks_coords ON chunks(x, y);
+      `);
+
+      if (DEBUG_MODE) {
+        await pgPool.query(`TRUNCATE TABLE chunks;`);
+        console.warn('DEBUG MODE: chunks table truncated');
+
+        await clearRedis('*chunk*');
+        await clearRedis('*player*');
+        console.warn('DEBUG MODE: Redis cache cleared');
+      }
+
+      console.log('Database initialized');
+      return; // success, exit early
+
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        console.error('Database initialization failed after retries:', error);
+        process.exit(1); // fail hard
+      }
+
+      const errorMsg = (error && typeof error === 'object' && 'message' in error) ? (error as any).message : String(error);
+      console.warn(`Database init failed (attempt ${attempt}): ${errorMsg}`);
+      await new Promise(res => setTimeout(res, delayMs));
     }
-
-    console.log('Database initialized');
-  } catch (error) {
-    console.error('Database initialization error:', error);
   }
 }
 
