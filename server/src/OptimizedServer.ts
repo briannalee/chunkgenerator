@@ -419,6 +419,36 @@ async function handleMessage(ws: any, message: any, playerId: string) {
   } else if (message.type === "handshake") {
     const players = await getAllPlayers();
     ws.send(JSON.stringify({ type: "handshook", id: playerId, players }));
+  } else if (message.type === "mining") {
+    const { x, y, tool } = message;
+    const result = await handleMining(playerId, x, y, tool);
+
+    if (result.success) {
+      ws.send(JSON.stringify({
+        type: "miningSuccess",
+        resource: result.resource,
+        amount: result.amount,
+        x,
+        y
+      }));
+
+      // Broadcast update to nearby players and invalidate chunk
+      const chunkX = Math.floor(x / 10);
+      const chunkY = Math.floor(y / 10);
+
+      await pubClient.publish(
+        'chunk_invalidate',
+        JSON.stringify({ x: chunkX, y: chunkY })
+      );
+
+      broadcastChunkUpdate(chunkX, chunkY);
+    } else {
+      ws.send(JSON.stringify({
+        type: "miningFailed",
+        x,
+        y
+      }));
+    }
   }
 }
 
@@ -436,6 +466,122 @@ async function broadcastPlayerUpdate() {
     });
   } catch (error) {
     console.error('Error broadcasting player update:', error);
+  }
+}
+
+// Resource management
+async function handleMining(playerId: string, x: number, y: number, tool: string): Promise<{ success: boolean, resource?: ResourceType, amount?: number }> {
+  try {
+    // Get the chunk containing this position
+    const chunkSize = 10;
+    const chunkX = Math.floor(x / chunkSize);
+    const chunkY = Math.floor(y / chunkSize);
+
+    // Get the chunk data
+    let chunk = await getCachedChunk(chunkX, chunkY);
+    if (!chunk) {
+      chunk = await findChunkInDB(chunkX, chunkY);
+      if (!chunk) {
+        return { success: false };
+      }
+    }
+
+    // Find the specific tile
+    const tileX = x % chunkSize;
+    const tileY = y % chunkSize;
+    let tile;
+    if (chunk.terrain) {
+      tile = chunk.terrain[tileY][tileX];
+    } else {
+      return { success: false };
+    }
+
+    if (!tile || !tile.r) {
+      return { success: false };
+    }
+
+    const resource = tile.r; // Get first resource
+    if (resource.remaining <= 0) {
+      return { success: false };
+    }
+
+    // Calculate mining efficiency
+    const toolEfficiency = {
+      hand: 0.2,
+      pickaxe: 0.6,
+      drill: 0.9
+    }[tool] || 0.2;
+
+    const efficiency = Math.max(0.1, toolEfficiency - resource.hardness);
+    const minedAmount = Math.max(1, Math.floor(resource.remaining * efficiency * 0.1));
+
+    // Update resource
+    resource.remaining = Math.max(0, resource.remaining - minedAmount);
+
+    // Update the chunk in database and cache
+    await saveChunkToDB(chunk);
+
+    return {
+      success: true,
+      resource: resource.type,
+      amount: minedAmount
+    };
+  } catch (error) {
+    console.error('Mining error:', error);
+    return { success: false };
+  }
+}
+
+// Helper for async compression
+function compressAsync(data: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zlib.gzip(data, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
+  });
+}
+
+
+// Broadcast chunk updates
+async function broadcastChunkUpdate(chunkX: number, chunkY: number) {
+  try {
+    // Try cache first, then database
+    let chunk = await getCachedChunk(chunkX, chunkY);
+    if (!chunk) {
+      chunk = await findChunkInDB(chunkX, chunkY);
+      if (!chunk) {
+        if (DEBUG_MODE) console.warn(`Chunk ${chunkX},${chunkY} not found`);
+        return;
+      }
+      // Cache the chunk for future use
+      await setCachedChunk(chunk);
+    }
+
+    // Prepare minimal client data
+    const clientChunk = {
+      x: chunk.x,
+      y: chunk.y,
+      tiles: chunk.tiles,
+      mode: chunk.mode
+    };
+
+    // Compress the payload
+    const updateMessage = JSON.stringify({
+      type: "chunkUpdate",
+      chunk: clientChunk
+    });
+
+    // Broadcast efficiently
+    const compressed = await compressAsync(updateMessage);
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(compressed);
+      }
+    });
+
+  } catch (error) {
+    console.error('Error broadcasting chunk update:', error);
   }
 }
 
