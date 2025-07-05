@@ -8,7 +8,7 @@ import { Worker } from "worker_threads";
 import path from "path";
 import Redis from 'ioredis';
 import { Pool } from 'pg';
-import { ResourceType } from "shared/ResourceTypes";
+import { ResourceNode, ResourceType } from "shared/ResourceTypes";
 dotenv.config();
 
 const app = express();
@@ -80,15 +80,16 @@ async function initDatabase() {
 
       // Now run actual schema setup
       await pgPool.query(`
-        CREATE TABLE IF NOT EXISTS chunks (
-          x INTEGER NOT NULL,
-          y INTEGER NOT NULL,
-          tiles JSONB NOT NULL,
-          terrain JSONB NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (x, y)
-        );
-        CREATE INDEX IF NOT EXISTS idx_chunks_coords ON chunks(x, y);
+CREATE TABLE IF NOT EXISTS chunks (
+  x INTEGER NOT NULL,
+  y INTEGER NOT NULL,
+  tiles JSONB NOT NULL,
+  terrain JSONB NOT NULL,
+  resources JSONB DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (x, y)
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_coords ON chunks(x, y);
       `);
 
       if (DEBUG_MODE) {
@@ -220,7 +221,6 @@ async function getOrGenerateChunk(x: number, y: number, mode: string): Promise<C
 
 // Redis cache operations
 const CACHE_TTL = 3600; // 1 hour
-
 async function getCachedChunk(x: number, y: number): Promise<ChunkData | null> {
   try {
     const key = `chunk:${x}:${y}`;
@@ -245,7 +245,7 @@ async function setCachedChunk(chunk: ChunkData): Promise<void> {
 async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
   try {
     const result = await pgPool.query(
-      'SELECT tiles, terrain FROM chunks WHERE x = $1 AND y = $2',
+      'SELECT tiles, terrain, resources FROM chunks WHERE x = $1 AND y = $2',
       [x, y]
     );
 
@@ -257,6 +257,7 @@ async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
       y,
       tiles: row.tiles,
       terrain: row.terrain,
+      resources: row.resources,
       mode: 'chunk'
     };
   } catch (error) {
@@ -279,12 +280,13 @@ async function saveChunkToDB(chunk: ChunkData): Promise<void> {
     }
 
     await pgPool.query(
-      `INSERT INTO chunks (x, y, tiles, terrain) 
-       VALUES ($1, $2, $3, $4) 
+      `INSERT INTO chunks (x, y, tiles, terrain, resources) 
+       VALUES ($1, $2, $3, $4, $5) 
        ON CONFLICT (x, y) DO UPDATE SET 
        tiles = EXCLUDED.tiles, 
-       terrain = EXCLUDED.terrain`,
-      [chunk.x, chunk.y, JSON.stringify(chunk.tiles), JSON.stringify(chunk.terrain)]
+       terrain = EXCLUDED.terrain,
+       resources = EXCLUDED.resources`,
+      [chunk.x, chunk.y, JSON.stringify(chunk.tiles), JSON.stringify(chunk.terrain), JSON.stringify(chunk.resources)]
     );
 
     await redis.del(key);
@@ -400,7 +402,13 @@ wss.on("connection", async (ws) => {
 
 // Message handling with optimized caching
 async function handleMessage(ws: any, message: any, playerId: string) {
-  if (message.type === "requestChunk") {
+  console.log("got message: " + message.type);
+  if (message.type === "mining") {
+    const { x, y, tool } = message;
+    const response = await handleMining(x, y, tool);
+    console.log("mining done: " + response);
+    ws.send(JSON.stringify(response));
+  } else if (message.type === "requestChunk") {
     const { x, y, mode = "chunk" } = message;
 
     const validCoords = typeof x === "number" && typeof y === "number" && !isNaN(x) && !isNaN(y);
@@ -441,6 +449,67 @@ async function handleMessage(ws: any, message: any, playerId: string) {
   }
 }
 
+async function handleMining(worldX: number, worldY: number, tool: string): Promise<any> {
+  try {
+    // Find the chunk containing this tile
+    const chunkSize = 10;
+    const chunkX = Math.floor(worldX / chunkSize);
+    const chunkY = Math.floor(worldY / chunkSize);
+
+    // Get the chunk data
+    const chunk = await getOrGenerateChunk(chunkX, chunkY, "chunk");
+
+    // Find the tile
+    const tileX = worldX % chunkSize;
+    const tileY = worldY % chunkSize;
+    const tileIndex = tileY * chunkSize + tileX;
+
+    if (tileIndex >= chunk.tiles.length) {
+      return { type: "miningFailed", x: worldX, y: worldY };
+    }
+
+    const tile = chunk.tiles[tileIndex];
+    if (!tile.r || tile.r.remaining <= 0) {
+      return { type: "miningFailed", x: worldX, y: worldY };
+    }
+
+    const resource = tile.r;
+
+    // Calculate efficiency
+    const toolEfficiency = getToolEfficiency(tool);
+    const efficiency = Math.max(0.1, toolEfficiency - resource.hardness);
+    const minedAmount = Math.max(1, Math.floor(resource.remaining * efficiency * 0.1));
+
+    // Update resource
+    resource.remaining = Math.max(0, resource.remaining - minedAmount);
+
+    // Update chunk in DB/cache
+    await saveChunkToDB(chunk);
+    await pubClient.publish('chunk_invalidate', JSON.stringify({ x: chunkX, y: chunkY }));
+    await broadcastChunkUpdate(chunkX, chunkY);
+
+    return {
+      type: "miningSuccess",
+      resource: resource.type,
+      amount: minedAmount,
+      x: worldX,
+      y: worldY
+    };
+  } catch (error) {
+    console.error("Mining error:", error);
+    return { type: "miningFailed", x: worldX, y: worldY };
+  }
+}
+
+// Helper functions
+const getToolEfficiency = (tool: string): number => {
+  switch (tool) {
+    case "hand": return 0.2;
+    case "pickaxe": return 0.6;
+    case "drill": return 0.9;
+    default: return 0.2;
+  }
+};
 
 // Broadcast player updates
 async function broadcastPlayerUpdate() {

@@ -342,6 +342,7 @@ describe("Resource Generation System (Live Server Tests)", () => {
         const timeout = setTimeout(() => reject(new Error('Timeout waiting for miningFailed')), 5000);
 
         const handler = (data: any) => {
+          console.log(data.type)
           if (
             data.type === 'miningFailed' &&
             data.x === tileWithoutResource.x &&
