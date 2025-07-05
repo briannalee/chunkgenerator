@@ -506,8 +506,11 @@ async function handleMining(playerId: string, x: number, y: number, tool: string
     }
 
     // Find the specific tile
-    const tileX = x % chunkSize;
-    const tileY = y % chunkSize;
+    const mod = (n: number, m: number) => ((n % m) + m) % m;
+
+    const tileX = mod(x, chunkSize);
+    const tileY = mod(y, chunkSize);
+
     let tile;
     if (chunk.terrain) {
       tile = chunk.terrain[tileY][tileX];
