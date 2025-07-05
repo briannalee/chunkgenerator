@@ -458,6 +458,59 @@ async function broadcastPlayerUpdate() {
   }
 }
 
+// Helper for async compression
+function compressAsync(data: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zlib.gzip(data, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
+  });
+}
+
+
+// Broadcast chunk updates
+async function broadcastChunkUpdate(chunkX: number, chunkY: number) {
+  try {
+    // Try cache first, then database
+    let chunk = await getCachedChunk(chunkX, chunkY);
+    if (!chunk) {
+      chunk = await findChunkInDB(chunkX, chunkY);
+      if (!chunk) {
+        if (DEBUG_MODE) console.warn(`Chunk ${chunkX},${chunkY} not found`);
+        return;
+      }
+      // Cache the chunk for future use
+      await setCachedChunk(chunk);
+    }
+
+    // Prepare minimal client data
+    const clientChunk = {
+      x: chunk.x,
+      y: chunk.y,
+      tiles: chunk.tiles,
+      mode: chunk.mode
+    };
+
+    // Compress the payload
+    const updateMessage = JSON.stringify({
+      type: "chunkUpdate",
+      chunk: clientChunk
+    });
+
+    // Broadcast efficiently
+    const compressed = await compressAsync(updateMessage);
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(compressed);
+      }
+    });
+
+  } catch (error) {
+    console.error('Error broadcasting chunk update:', error);
+  }
+}
+
 // Subscribe to Redis for worker communication
 subClient.subscribe(`worker_${process.pid}`);
 subClient.on('message', async (channel, message) => {
