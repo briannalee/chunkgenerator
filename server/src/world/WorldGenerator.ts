@@ -1,7 +1,9 @@
+import { BiomeResourceDensity, BiomeResourceSettings, BiomeResourceProbabilities, ResourceNode, ResourceType, ResourceHardnessRange, ResourceRespawnRange, ResourceAmountRange, ResourceAmountBiomeMultipliers } from 'shared/ResourceTypes';
 import { PriorityQueue } from '../pathfinding/PriorityQueue';
 import { NoiseGenerator } from './NoiseGenerator';
 import { Biome, WaterType, VegetationType, SoilType, ColorIndex } from 'shared/TerrainTypes';
 import { TerrainPoint } from 'shared/TileTypes';
+import { Random } from '../utilities/Random';
 
 export class WorldGenerator {
   private noiseGen: NoiseGenerator;
@@ -15,8 +17,12 @@ export class WorldGenerator {
   // Cache size limits to prevent memory bloat
   private readonly MAX_CACHE_SIZE = 10000;
 
-  constructor(seed?: number) {
+  // World seed
+  private seed: number;
+
+  constructor(seed: number = 12345) {
     this.noiseGen = new NoiseGenerator(seed);
+    this.seed = seed;
   }
 
   generateChunk(chunkX: number, chunkY: number, chunkSize: number = 10): TerrainPoint[][] {
@@ -49,6 +55,8 @@ export class WorldGenerator {
     }
 
     this.postProcessChunk(terrain, chunkSize);
+    this.generateResources(terrain, chunkSize);
+
     this.manageCacheSize(); // Prevent memory bloat
     return terrain;
   }
@@ -1007,5 +1015,188 @@ export class WorldGenerator {
 
     // Otherwise, just use height as heuristic (lower is better)
     return terrain[y][x].nH;
+  }
+
+  private generateResources(terrain: TerrainPoint[][], chunkSize: number): void {
+    const chunkX = Math.floor(terrain[0][0].x / chunkSize);
+    const chunkY = Math.floor(terrain[0][0].y / chunkSize);
+    const rng = new Random(this.getChunkSeed(chunkX, chunkY));
+
+    // Place guaranteed resources for forest/jungle/dense forest tiles and lakes/rivers first
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const tile = terrain[y][x];
+
+        if (tile.r) continue; // Skip if resource already assigned
+
+        if (tile.b === Biome.LAKE || tile.b === Biome.RIVER) {
+          this.assignResourceToTile(tile, ResourceType.Water, rng);
+          continue; // Don't skip this tile just because of cliff/steepness
+        }
+
+        if (tile.iC || tile.stp > BiomeResourceSettings.STEEP_CUTOFF) continue; // Skip cliffs and steep tiles
+
+        if (
+          tile.b === Biome.FOREST ||
+          tile.b === Biome.JUNGLE ||
+          tile.b === Biome.DENSE_FOREST
+        ) {
+          const probabilities = BiomeResourceProbabilities[tile.b];
+          if (!probabilities) throw new Error(`Missing guaranteed resource probabilities for biome: ${Biome[tile.b]}`);
+
+          // Guaranteed wood, occasionally coal or iron
+          let resourceType: ResourceType = ResourceType.Wood;
+          const roll = rng.next();
+
+          for (const [type, threshold] of probabilities) {
+            if (roll < threshold) {
+              resourceType = type;
+              break;
+            }
+          }
+
+          this.assignResourceToTile(tile, resourceType, rng);
+        }
+      }
+    }
+
+    // Now place random resources for other biomes using previous logic
+    const resourceDensity = this.calculateResourceDensity(terrain, chunkSize);
+    const resourceCount = Math.floor(rng.next() * BiomeResourceSettings.MAX_MULTIPLIER * resourceDensity) + BiomeResourceSettings.MIN;
+
+    for (let i = 0; i < resourceCount; i++) {
+      const position = this.findResourcePosition(terrain, chunkSize, rng);
+      if (!position) continue;
+
+      const { x, y } = position;
+      const tile = terrain[y][x];
+      if (tile.r) continue; // Skip if already has resource
+
+      const resourceType = this.determineResourceType(tile, rng);
+      if (!resourceType) continue;
+
+      this.assignResourceToTile(tile, resourceType, rng);
+    }
+  }
+
+  // Helper method to assign resource node to a tile
+  private assignResourceToTile(tile: TerrainPoint, type: ResourceType, rng: Random): void {
+    const resourceNode: ResourceNode = {
+      type,
+      amount: this.getResourceAmount(type, tile, rng),
+      remaining: 0,
+      hardness: this.getResourceHardness(type, tile, rng),
+      x: tile.x,
+      y: tile.y,
+      respawnTime: this.getRespawnTime(type, rng),
+    };
+    resourceNode.remaining = resourceNode.amount;
+    tile.r = resourceNode;
+  }
+
+  private getChunkSeed(chunkX: number, chunkY: number): number {
+    // Create a deterministic seed for this chunk
+    return this.seed + chunkX * 49632 + chunkY * 325176;
+  }
+
+  private calculateResourceDensity(terrain: TerrainPoint[][], chunkSize: number): number {
+    let density = 0;
+    let count = 0;
+
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const tile = terrain[y][x];
+
+        // Add density based on biome
+        density += this.getBiomeResourceDensity(tile.b);
+        count++;
+      }
+    }
+
+    return count > 0 ? density / count : 0;
+  }
+
+  private getBiomeResourceDensity(biome: Biome): number {
+    return BiomeResourceDensity[biome] ?? 0.5;
+  }
+
+  private findResourcePosition(terrain: TerrainPoint[][], chunkSize: number, rng: Random): { x: number, y: number } | null {
+    const maxAttempts = 20;
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      const x = Math.floor(rng.next() * chunkSize);
+      const y = Math.floor(rng.next() * chunkSize);
+      const tile = terrain[y][x];
+
+      if (tile.r || tile.iC || tile.stp > BiomeResourceSettings.STEEP_CUTOFF || tile.w) continue;
+
+      return { x, y };
+    }
+
+    // Fallback linear scan
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const tile = terrain[y][x];
+        if (!tile.r && !tile.iC && tile.stp <= BiomeResourceSettings.STEEP_CUTOFF && !tile.w) {
+          return { x, y };
+        }
+      }
+    }
+    return null;
+  }
+
+  private determineResourceType(tile: TerrainPoint, rng: Random): ResourceType | null {
+    // Skip guaranteed biomes handled elsewhere
+    if (
+      tile.b === Biome.FOREST ||
+      tile.b === Biome.JUNGLE ||
+      tile.b === Biome.DENSE_FOREST ||
+      tile.b === Biome.LAKE ||
+      tile.b === Biome.RIVER
+    ) {
+      return null;
+    }
+
+    const probabilities = BiomeResourceProbabilities[tile.b];
+    if (!probabilities) return null; // No mapping, no resource
+
+    const rand = rng.next();
+
+    for (const [resource, threshold] of probabilities) {
+      if (rand < threshold) return resource;
+    }
+
+    return null; // Fallback, should never hit due to cumulative thresholds
+  }
+
+  private getResourceAmount(type: ResourceType, tile: TerrainPoint, rng: Random): number {
+    const [min, max] = ResourceAmountRange[type];
+    let amount = Math.floor(min + rng.next() * (max - min));
+
+    const biomeMultipliers = ResourceAmountBiomeMultipliers[tile.b];
+    const multiplier = biomeMultipliers?.[type] ?? 1;
+
+    return Math.floor(amount * multiplier);
+  }
+
+  private getResourceHardness(type: ResourceType, tile: TerrainPoint, rng: Random): number {
+    const [min, max] = ResourceHardnessRange[type];
+    let hardness = min + rng.next() * (max - min);
+
+    if (tile.stp > BiomeResourceSettings.STEEP_HARDNESS_CUTOFF) {
+      hardness += BiomeResourceSettings.STEEP_HARDNESS_DIFFICULTY;
+    }
+
+    return Math.min(1, Math.max(0, hardness));
+  }
+
+  private getRespawnTime(type: ResourceType, rng: Random): number | undefined {
+    const range = ResourceRespawnRange[type];
+    if (!range) return undefined;
+
+    const [min, max] = range;
+    return min + Math.floor(rng.next() * (max - min));
   }
 }
