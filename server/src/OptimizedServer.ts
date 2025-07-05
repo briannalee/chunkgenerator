@@ -77,7 +77,7 @@ async function initDatabase() {
 
       // Just a quick connection test
       await pgPool.query('SELECT 1');
-
+await pgPool.query('DROP TABLE ');
       // Now run actual schema setup
       await pgPool.query(`
 CREATE TABLE IF NOT EXISTS chunks (

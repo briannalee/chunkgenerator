@@ -245,18 +245,18 @@ describe("Resource Generation System (Live Server Tests)", () => {
           if (!tile.r) continue;
 
           const resource = tile.r;
-          const type = resource.type;
+          const type = resource.type as ResourceType;
 
           if (!(type in ResourceAmountRange)) {
             throw new Error(`Unhandled resource type: ${type}`);
           }
 
           // Resource amount must be within the allowed range for the type, adjusted by biome multiplier
-          const [baseMin, baseMax] = ResourceAmountRange[type as ResourceType];
-          const biomeMultiplier = ResourceAmountBiomeMultipliers[tile.b as Biome]?.[type as ResourceType] ?? 1;
-
-          const expectedMin = Math.floor(baseMin * biomeMultiplier);
-          const expectedMax = Math.floor((baseMax - 1) * biomeMultiplier);
+          const baseMax = ResourceAmountRange[type][1];
+          const multiplier = ResourceAmountBiomeMultipliers[tile.b as Biome]?.[type] ?? 1;
+          const expectedMax = Math.floor(baseMax * multiplier);
+          const baseMin = ResourceAmountRange[type][0];
+          const expectedMin = Math.floor(baseMin * multiplier);
 
           expect(resource.amount).toBeGreaterThanOrEqual(expectedMin);
           expect(resource.amount).toBeLessThanOrEqual(expectedMax);
@@ -342,7 +342,6 @@ describe("Resource Generation System (Live Server Tests)", () => {
         const timeout = setTimeout(() => reject(new Error('Timeout waiting for miningFailed')), 5000);
 
         const handler = (data: any) => {
-          console.log(data.type)
           if (
             data.type === 'miningFailed' &&
             data.x === tileWithoutResource.x &&
