@@ -94,6 +94,21 @@ export const BiomeResourceProbabilities: Partial<Record<Biome, ResourceProbabili
   [Biome.BEACH]: [
     [ResourceType.Stone, 1.0],
   ],
+  [Biome.FOREST]: [
+    [ResourceType.Wood, 0.8],
+    [ResourceType.Coal, 0.9],
+    [ResourceType.Iron, 1.0],
+  ],
+  [Biome.DENSE_FOREST]: [
+    [ResourceType.Wood, 0.8],
+    [ResourceType.Coal, 0.9],
+    [ResourceType.Iron, 1.0],
+  ],
+  [Biome.JUNGLE]: [
+    [ResourceType.Wood, 0.8],
+    [ResourceType.Coal, 0.9],
+    [ResourceType.Iron, 1.0],
+  ],
 };
 
 export const ResourceHardnessRange: Record<ResourceType, readonly [number, number]> = {

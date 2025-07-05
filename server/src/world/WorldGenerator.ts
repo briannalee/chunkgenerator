@@ -1041,11 +1041,19 @@ export class WorldGenerator {
           tile.b === Biome.JUNGLE ||
           tile.b === Biome.DENSE_FOREST
         ) {
+          const probabilities = BiomeResourceProbabilities[tile.b];
+          if (!probabilities) throw new Error(`Missing guaranteed resource probabilities for biome: ${Biome[tile.b]}`);
+
           // Guaranteed wood, occasionally coal or iron
           let resourceType: ResourceType = ResourceType.Wood;
-          const chance = rng.next();
-          if (chance < 0.1) resourceType = ResourceType.Coal;
-          else if (chance < 0.2) resourceType = ResourceType.Iron;
+          const roll = rng.next();
+
+          for (const [type, threshold] of probabilities) {
+            if (roll < threshold) {
+              resourceType = type;
+              break;
+            }
+          }
 
           this.assignResourceToTile(tile, resourceType, rng);
         }
