@@ -2,6 +2,18 @@ import { PriorityQueue } from '../pathfinding/PriorityQueue';
 import { NoiseGenerator } from './NoiseGenerator';
 import { Biome, WaterType, VegetationType, SoilType, ColorIndex } from 'shared/TerrainTypes';
 import { TerrainPoint } from 'shared/TileTypes';
+import {
+  ResourceType,
+  ResourceNode,
+  BiomeResourceMap,
+  BiomeResourceDensity,
+  BiomeResourceSettings,
+  BiomeResourceProbabilities,
+  ResourceHardnessRange,
+  ResourceRespawnRange,
+  ResourceAmountRange,
+  ResourceAmountBiomeMultipliers
+} from 'shared/ResourceTypes';
 
 export class WorldGenerator {
   private noiseGen: NoiseGenerator;
@@ -49,6 +61,10 @@ export class WorldGenerator {
     }
 
     this.postProcessChunk(terrain, chunkSize);
+
+    // Resource generation - always after other post-processing
+    this.generateResources(terrain, chunkSize);
+
     this.manageCacheSize(); // Prevent memory bloat
     return terrain;
   }
@@ -1007,5 +1023,198 @@ export class WorldGenerator {
 
     // Otherwise, just use height as heuristic (lower is better)
     return terrain[y][x].nH;
+  }
+
+  private generateResources(terrain: TerrainPoint[][], chunkSize: number): void {
+    const usedPositions = new Set<string>();
+
+    // Step 1: Guaranteed resource placement
+    this.placeGuaranteedResources(terrain, chunkSize, usedPositions);
+
+    // Step 2: Random resource placement
+    this.placeRandomResources(terrain, chunkSize, usedPositions);
+  }
+
+  private placeGuaranteedResources(terrain: TerrainPoint[][], chunkSize: number, usedPositions: Set<string>): void {
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const point = terrain[y][x];
+        const key = `${point.x},${point.y}`;
+
+        // A. Lake and river biomes always get water resource
+        if (point.b === Biome.LAKE || point.b === Biome.RIVER) {
+          const waterResource = this.createResourceNode(ResourceType.Water, point.x, point.y, point.b);
+          point.r = waterResource;
+          usedPositions.add(key);
+          continue;
+        }
+
+        // B. Forest biomes get guaranteed resources if not cliff and not steep
+        const roundedStp = Math.round(point.stp * 100) / 100;
+        if ((point.b === Biome.FOREST || point.b === Biome.JUNGLE || point.b === Biome.DENSE_FOREST) &&
+          !point.iC && roundedStp <= BiomeResourceSettings.STEEP_CUTOFF) {
+
+          const resourceType = this.selectResourceFromProbabilities(point.b);
+          if (resourceType) {
+            const resource = this.createResourceNode(resourceType, point.x, point.y, point.b);
+            point.r = resource;
+            usedPositions.add(key);
+          }
+        }
+      }
+    }
+  }
+
+  private placeRandomResources(terrain: TerrainPoint[][], chunkSize: number, usedPositions: Set<string>): void {
+    // Calculate average density for the chunk
+    const avgDensity = this.calculateAverageDensity(terrain, chunkSize);
+    const maxResources = Math.floor(avgDensity * BiomeResourceSettings.MAX_MULTIPLIER);
+    const minResources = BiomeResourceSettings.MIN;
+
+    // Find suitable positions for random placement
+    const suitablePositions: { x: number, y: number, point: TerrainPoint }[] = [];
+
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const point = terrain[y][x];
+        const key = `${point.x},${point.y}`;
+
+        if (this.isSuitableForResource(point) && !usedPositions.has(key)) {
+          suitablePositions.push({ x, y, point });
+        }
+      }
+    }
+
+    if (suitablePositions.length === 0) {
+      return; // No suitable positions available
+    }
+
+    // Determine target number of resources to place
+    const targetResources = Math.min(
+      Math.max(minResources, Math.floor(Math.random() * maxResources)),
+      suitablePositions.length
+    );
+
+    // Random placement
+    let placedResources = 0;
+    const maxAttempts = targetResources * 3; // Prevent infinite loops
+    let attempts = 0;
+
+    while (placedResources < targetResources && attempts < maxAttempts && suitablePositions.length > 0) {
+      attempts++;
+
+      const randomIndex = Math.floor(Math.random() * suitablePositions.length);
+      const { point } = suitablePositions[randomIndex];
+      const key = `${point.x},${point.y}`;
+
+      if (!usedPositions.has(key)) {
+        const resourceType = this.selectResourceFromProbabilities(point.b);
+        if (resourceType) {
+          const resource = this.createResourceNode(resourceType, point.x, point.y, point.b);
+          point.r = resource;
+          usedPositions.add(key);
+          placedResources++;
+        }
+      }
+
+      // Remove this position from consideration
+      suitablePositions.splice(randomIndex, 1);
+    }
+
+    // Linear search fallback if random placement failed
+    if (placedResources < Math.min(minResources, suitablePositions.length + placedResources)) {
+      for (const { point } of suitablePositions) {
+        const key = `${point.x},${point.y}`;
+        if (!usedPositions.has(key) && placedResources < targetResources) {
+          const resourceType = this.selectResourceFromProbabilities(point.b);
+          if (resourceType) {
+            const resource = this.createResourceNode(resourceType, point.x, point.y, point.b);
+            point.r = resource;
+            usedPositions.add(key);
+            placedResources++;
+          }
+        }
+      }
+    }
+  }
+
+  private calculateAverageDensity(terrain: TerrainPoint[][], chunkSize: number): number {
+    let totalDensity = 0;
+    let validTiles = 0;
+
+    for (let y = 0; y < chunkSize; y++) {
+      for (let x = 0; x < chunkSize; x++) {
+        const point = terrain[y][x];
+        const density = BiomeResourceDensity[point.b];
+        if (density !== undefined) {
+          totalDensity += density;
+          validTiles++;
+        }
+      }
+    }
+
+    return validTiles > 0 ? totalDensity / validTiles : 0;
+  }
+
+  private isSuitableForResource(point: TerrainPoint): boolean {
+    // C. Do not place resources on cliff tiles, steep tiles, ocean tiles, or water tiles
+    // (except water resource on lake/rivers which is handled separately)
+    if (point.iC) return false; // Cliff
+    if (point.stp > BiomeResourceSettings.STEEP_CUTOFF) return false; // Steep
+    if (point.b === Biome.OCEAN_SHALLOW || point.b === Biome.OCEAN_DEEP) return false; // Ocean
+    if (point.w && point.b !== Biome.LAKE && point.b !== Biome.RIVER) return false; // Other water
+
+    return true;
+  }
+
+  private selectResourceFromProbabilities(biome: Biome): ResourceType | null {
+    const probabilities = BiomeResourceProbabilities[biome];
+    if (!probabilities || probabilities.length === 0) {
+      return null;
+    }
+
+    const rand = Math.random();
+    for (const [resourceType, probability] of probabilities) {
+      if (rand < probability) {
+        return resourceType;
+      }
+    }
+
+    // Fallback to last resource type if no match
+    return probabilities[probabilities.length - 1][0];
+  }
+
+  private createResourceNode(resourceType: ResourceType, x: number, y: number, biome: Biome): ResourceNode {
+    // Get base amount range
+    const [minAmount, maxAmount] = ResourceAmountRange[resourceType];
+    let amount = Math.floor(Math.random() * (maxAmount - minAmount + 1)) + minAmount;
+
+    // Apply biome multiplier if available
+    const biomeMultipliers = ResourceAmountBiomeMultipliers[biome];
+    if (biomeMultipliers && biomeMultipliers[resourceType]) {
+      amount = Math.floor(amount * biomeMultipliers[resourceType]!);
+    }
+
+    // Get hardness range
+    const [minHardness, maxHardness] = ResourceHardnessRange[resourceType];
+    const hardness = Math.random() * (maxHardness - minHardness) + minHardness;
+
+    // Get respawn time if applicable
+    let respawnTime: number | undefined;
+    const respawnRange = ResourceRespawnRange[resourceType];
+    if (respawnRange) {
+      const [minRespawn, maxRespawn] = respawnRange;
+      respawnTime = Math.floor(Math.random() * (maxRespawn - minRespawn + 1)) + minRespawn;
+    }
+
+    return {
+      type: resourceType,
+      amount,
+      remaining: amount,
+      hardness: Math.round(hardness * 100) / 100, // Round to 2 decimal places
+      x,
+      y,
+      respawnTime
+    };
   }
 }

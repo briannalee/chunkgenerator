@@ -77,7 +77,6 @@ async function initDatabase() {
 
       // Just a quick connection test
       await pgPool.query('SELECT 1');
-
       // Now run actual schema setup
       await pgPool.query(`
         CREATE TABLE IF NOT EXISTS chunks (
@@ -413,7 +412,6 @@ async function handleMessage(ws: any, message: any, playerId: string) {
 
     try {
       const chunk = await getOrGenerateChunk(x, y, mode);
-
       const clientChunk = {
         x: chunk.x,
         y: chunk.y,
@@ -438,6 +436,90 @@ async function handleMessage(ws: any, message: any, playerId: string) {
   } else if (message.type === "handshake") {
     const players = await getAllPlayers();
     ws.send(JSON.stringify({ type: "handshook", id: playerId, players }));
+  } else if (message.type === "mining") {
+    await handleMiningRequest(ws, message, playerId);
+  }
+}
+
+async function handleMiningRequest(ws: any, message: any, playerId: string) {
+  const { x, y, tool } = message;
+
+  // Validate input
+  if (typeof x !== "number" || typeof y !== "number" || !["hand", "pickaxe", "drill"].includes(tool)) {
+    ws.send(JSON.stringify({ type: "miningFailed", x, y }));
+    return;
+  }
+
+  try {
+    // Find the chunk containing this tile
+    const chunkSize = 10;
+    const chunkX = Math.floor(x / chunkSize);
+    const chunkY = Math.floor(y / chunkSize);
+    
+    // Get chunk from cache or DB
+    let chunk = await getCachedChunk(chunkX, chunkY);
+    if (!chunk) {
+      chunk = await findChunkInDB(chunkX, chunkY);
+      if (!chunk) {
+        ws.send(JSON.stringify({ type: "miningFailed", x, y }));
+        return;
+      }
+    }
+
+    // Find the specific tile in the terrain data
+    const localX = x - (chunkX * chunkSize);
+    const localY = y - (chunkY * chunkSize);
+    const tileIndex = localY * chunkSize + localX;
+    
+    if (!chunk.terrain || !chunk.terrain[localY] || !chunk.terrain[localY][localX]) {
+      ws.send(JSON.stringify({ type: "miningFailed", x, y }));
+      return;
+    }
+
+    const terrainPoint = chunk.terrain[localY][localX];
+    
+    // Check if tile has mineable resources
+    if (!terrainPoint.r) {
+      ws.send(JSON.stringify({ type: "miningFailed", x, y }));
+      return;
+    }
+
+    // Find a resource with remaining amount > 0
+    const remaining = terrainPoint.r.remaining;
+    if (remaining <=0) {
+      ws.send(JSON.stringify({ type: "miningFailed", x, y }));
+      return;
+    }
+
+    // Calculate mining efficiency
+    //@ts-ignore
+    const toolEfficiency = { hand: 0.2, pickaxe: 0.6, drill: 0.9 }[tool];
+    const efficiency = Math.max(0.1, toolEfficiency - terrainPoint.r.hardness);
+    
+    // Calculate mined amount
+    const minedAmount = Math.max(1, Math.floor(terrainPoint.r.remaining * efficiency * 0.1));
+    
+    // Update resource
+    terrainPoint.r.remaining = Math.max(0, terrainPoint.r.remaining - minedAmount);
+    
+    // Save updated chunk to DB and invalidate cache
+    await saveChunkToDB(chunk);
+    
+    // Broadcast chunk update to all clients
+    await broadcastChunkUpdate(chunkX, chunkY);
+    
+    // Respond to mining client
+    ws.send(JSON.stringify({
+      type: "miningSuccess",
+      resource: terrainPoint.r.type,
+      amount: minedAmount,
+      x,
+      y
+    }));
+
+  } catch (error) {
+    console.error("Mining error:", error);
+    ws.send(JSON.stringify({ type: "miningFailed", x, y }));
   }
 }
 

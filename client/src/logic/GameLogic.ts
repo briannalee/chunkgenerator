@@ -107,8 +107,12 @@ export class GameLogic {
       
       if (resources) {
         Object.entries(resources).forEach(([key, res]) => {
+          
           const [x, y] = key.split(',').map(Number);
           const tile = mappedTiles.find((t: Tile) => t.x === x && t.y === y);
+                 if (tile && (tile.b === Biome.FOREST || tile.b === Biome.DENSE_FOREST || tile.b === Biome.JUNGLE) && !tile.r) {
+          console.log("ERRORR!!!!" + tile.x + ", " + tile.y + ", " + tile.b)
+        }
           if (tile) {
             tile.r = res as ResourceNode;
           }
