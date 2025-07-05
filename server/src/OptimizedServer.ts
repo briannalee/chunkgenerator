@@ -8,7 +8,8 @@ import { Worker } from "worker_threads";
 import path from "path";
 import Redis from 'ioredis';
 import { Pool } from 'pg';
-import { ResourceType } from "shared/ResourceTypes";
+import { ResourceNode, ResourceType } from "shared/ResourceTypes";
+import { TerrainPoint } from "shared/TileTypes";
 dotenv.config();
 
 const app = express();
@@ -194,11 +195,11 @@ async function getOrGenerateChunk(x: number, y: number, mode: string): Promise<C
   const generationPromise = (async () => {
     try {
       // Check Redis cache first
-      let chunk = await getCachedChunk(x, y);
+      let chunk = null;//await getCachedChunk(x, y);
 
       if (!chunk) {
         // Check DB
-        chunk = await findChunkInDB(x, y);
+        chunk = null;//await findChunkInDB(x, y);
       }
 
       if (!chunk) {
@@ -225,7 +226,14 @@ async function getCachedChunk(x: number, y: number): Promise<ChunkData | null> {
   try {
     const key = `chunk:${x}:${y}`;
     const cached = await redis.get(key);
-    return cached ? JSON.parse(cached) : null;
+    if (!cached) return null;
+
+    const parsed = JSON.parse(cached);
+    if (!parsed.resources && parsed.terrain) {
+      parsed.resources = extractResourcesFromTerrain(parsed.terrain);
+    }
+
+    return parsed;
   } catch (error) {
     console.error('Redis get error:', error);
     return null;
@@ -241,6 +249,18 @@ async function setCachedChunk(chunk: ChunkData): Promise<void> {
   }
 }
 
+function extractResourcesFromTerrain(terrain: TerrainPoint[][]): Record<string, ResourceNode> {
+  const resources: Record<string, ResourceNode> = {};
+  for (let row of terrain) {
+    for (let point of row) {
+      if (point.r) {
+        resources[`${point.x},${point.y}`] = point.r;
+      }
+    }
+  }
+  return resources;
+}
+
 // Database operations with PostgreSQL
 async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
   try {
@@ -252,12 +272,15 @@ async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
     if (result.rows.length === 0) return null;
 
     const row = result.rows[0];
+    const terrain = row.terrain;
+
     return {
       x,
       y,
       tiles: row.tiles,
-      terrain: row.terrain,
-      mode: 'chunk'
+      terrain,
+      mode: 'chunk',
+      resources: extractResourcesFromTerrain(terrain),
     };
   } catch (error) {
     console.error('Database find error:', error);
