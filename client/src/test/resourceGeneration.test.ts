@@ -5,8 +5,8 @@ import { GameLogic } from "../logic/GameLogic";
 import { BiomeResourceDensity, BiomeResourceMap, BiomeResourceSettings, ResourceAmountBiomeMultipliers, ResourceAmountRange, ResourceHardnessRange, ResourceRespawnRange, ResourceType } from 'shared/ResourceTypes';
 import { Biome } from 'shared/TerrainTypes'
 import { LandTile, Tile } from 'shared/TileTypes';
-import { INetworkAdapter } from 'network/INetworkAdapter';
-import { NetworkFactory } from 'network/NetworkFactory';
+import { INetworkAdapter } from '../network/INetworkAdapter';
+import { NetworkFactory } from '../network/NetworkFactory';
 
 describe("Resource Generation System (Live Server Tests)", () => {
   let gameLogic: GameLogic;
@@ -278,7 +278,7 @@ describe("Resource Generation System (Live Server Tests)", () => {
       // Find one tile with a resource among loaded chunks
       let tileWithResource: any | undefined;
       for (const chunk of testChunks) {
-        tileWithResource = chunk.chunk.tiles.find((t: any) => t.r !== undefined);
+        tileWithResource = chunk.tiles.find((t: any) => t.r !== undefined);
         if (tileWithResource) break;
       }
       expect(tileWithResource).toBeDefined();
@@ -323,7 +323,7 @@ describe("Resource Generation System (Live Server Tests)", () => {
       // Find one tile without a resource
       let tileWithoutResource: any | undefined;
       for (const chunk of testChunks) {
-        tileWithoutResource = chunk.chunk.tiles.find((t: any) => t.r === undefined);
+        tileWithoutResource = chunk.tiles.find((t: any) => t.r === undefined);
         if (tileWithoutResource) break;
       }
       expect(tileWithoutResource).toBeDefined();
