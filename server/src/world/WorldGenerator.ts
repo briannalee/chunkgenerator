@@ -7,7 +7,7 @@ import { Random } from '../utilities/Random';
 
 export class WorldGenerator {
   private noiseGen: NoiseGenerator;
-  private seaLevel: number = 0.4; // Normalized height for sea level
+  private seaLevel: number = 0.3; // Normalized height for sea level
 
   // Persistent caches that don't clear between chunks
   private heightCache: Map<string, number> = new Map();
