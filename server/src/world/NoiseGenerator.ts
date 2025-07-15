@@ -38,10 +38,20 @@ export class NoiseGenerator {
     return [warpX, warpY];
   }
 
-  // Generate height map with domain warping (optimized)
+  // Generate height map with integrated river carving
   generateHeight(x: number, y: number): number {
     const [warpX, warpY] = this.domainWarp(x, y);
-    return this.fbm(warpX * 0.01, warpY * 0.01, 4, 2.0, 0.5);
+    const baseHeight = this.fbm(warpX * 0.01, warpY * 0.01, 4, 2.0, 0.5);
+
+    // Only apply rivers if above sea level (0.3)
+    if (baseHeight > 0.3) {
+      const riverValue = this.generateRiverMap(x, y, baseHeight);
+      const carveMask = Math.min(1.0, Math.max(0, (baseHeight - 0.3) * 2.5));
+      const carveDepth = 0.1 * Math.max(0, carveMask);
+      return Math.max(-1.0, Math.min(1.0, baseHeight - riverValue * carveDepth));
+    }
+
+    return baseHeight;
   }
 
   // Generate temperature map (affected by height and latitude)
@@ -52,7 +62,7 @@ export class NoiseGenerator {
     const heightFactor = Math.max(0, 1 - height * 1.5);
     // Add some local variation
     const variation = this.fbm(x * 0.02, y * 0.02, 3) * 0.2;
-    
+
     // Combine factors and normalize to [0,1]
     return Math.max(0, Math.min(1, (latitudeFactor * heightFactor) + variation));
   }
@@ -61,18 +71,37 @@ export class NoiseGenerator {
   generatePrecipitation(x: number, y: number, height: number, temp: number): number {
     // Base precipitation with noise
     let precip = this.fbm(x * 0.01 + 100, y * 0.01 + 100, 4) * 0.5 + 0.5;
-    
+
     // Rain shadow effect - less rain on leeward side of mountains
     const mountainEffect = Math.max(0, height - 0.5) * 2;
     const windDirection = this.fbm(x * 0.001, y * 0.001, 1); // Simplified wind direction
     const rainShadow = mountainEffect * Math.max(0, windDirection);
-    
+
     // Precipitation is generally higher in moderate temperatures
     const tempEffect = 1 - Math.abs(temp - 0.5) * 2;
-    
+
     // Combine factors
     precip = precip * (1 - rainShadow * 0.5) * (0.5 + tempEffect * 0.5);
-    
+
     return Math.max(0, Math.min(1, precip));
+  }
+
+  /**
+ * Generates a map of potential river networks.
+ * The output is a value from 0 to 1, where values close to 1 represent a river center.
+ * @returns {number} A value indicating the "riverness" of a point.
+ */
+  generateRiverMap(x: number, y: number, baseHeight: number): number {
+    if (baseHeight < 0.3) return 0; // No rivers in oceans
+
+    const [warpX, warpY] = this.domainWarp(x, y, 50.0, 0.005);
+    const noise = this.fbm(warpX * 0.04, warpY * 0.04, 3);
+    let riverValue = 1.0 - Math.abs(noise * 2 - 1);
+
+    // Reduce rivers in high elevations
+    const heightFactor = 1.0 - Math.max(0, (baseHeight - 0.6) / 0.3);
+    //riverValue = Math.pow(riverValue, 8) * heightFactor;
+
+    return Math.max(0, riverValue);
   }
 }

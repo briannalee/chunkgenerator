@@ -47,5 +47,6 @@ export interface TerrainPoint {
   iC?: boolean;    // is cliff
   c: ColorIndex;  // color index for rendering
   _possibleBeach?: Boolean; // used for beach detection, not sent to client
-  r?: ResourceNode
+  r?: ResourceNode;
+  rV?: number; // River Value
 }
