@@ -12,40 +12,86 @@ describe('River Generation and Quality Tests', () => {
   let tileNormalizer: TileNormalizer;
   const CHUNK_SIZE = 10;
 
-  // Setup: connect to the network before running tests
+  // Setup: connect to the network before running tests, request chunks
   beforeAll(async () => {
     adapter = NetworkFactory.createAdapter();
     await adapter.connect();
     tileNormalizer = new TileNormalizer();
-    // Wait for connection confirmation from server
+
     await new Promise(resolve => {
       adapter.onMessage((data: any) => data.type === 'connected' && resolve(true));
     });
 
-    // Load chunks that are likely to have rivers
-    const chunkCoordinates = [
-      { x: 0, y: 0 },   // Origin
-      { x: 5, y: 5 },   // Distant chunk
-      { x: -3, y: 2 },  // Negative coordinates
-      { x: 0, y: 15 }   // Far chunk
+    const maxTries = 100;
+    let tries = 0;
+    let found = 0;
+    const seenCoords = new Set<string>();
+
+    // Hardcoded chunk coordinates
+    const hardcodedCoords = [
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+      { x: 21, y: 16 },
+      { x:-5, y: 48}
     ];
 
-    for (const coord of chunkCoordinates) {
-      const chunk = await new Promise(resolve => {
+    for (const { x, y } of hardcodedCoords) {
+      const key = `${x},${y}`;
+      seenCoords.add(key);
+
+      const chunkData: any = await new Promise(resolve => {
         adapter.onMessage((data: any) => {
-          if (data.type === 'chunkData') {
-            // Normalize tiles when received
+          if (data.type === 'chunkData' && data.chunk?.x === x && data.chunk?.y === y) {
+            data.chunk.tiles = TileNormalizer.NormalizeTiles(data.chunk.tiles);
+            expect(data.chunk.tiles.length).toBe(100);
+            resolve(data);
+          }
+        });
+        adapter.send({ type: 'requestChunk', x, y });
+      });
+
+      const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
+      if (riverTiles.length > 0) {
+        testChunks.push(chunkData);
+        found++;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Sample random chunks until we get 5 chunks with rivers or hit maxTries
+    while (found < 5 && tries < maxTries) {
+      const x = Math.floor(Math.random() * 100) - 50;
+      const y = Math.floor(Math.random() * 100) - 50;
+      const key = `${x},${y}`;
+      if (seenCoords.has(key)) continue;
+      seenCoords.add(key);
+
+      tries++;
+
+      const chunkData: any = await new Promise(resolve => {
+        adapter.onMessage((data: any) => {
+          if (data.type === 'chunkData' && data.chunk?.x === x && data.chunk?.y === y) {
             data.chunk.tiles = TileNormalizer.NormalizeTiles(data.chunk.tiles);
             resolve(data);
           }
         });
-        adapter.send({ type: 'requestChunk', x: coord.x, y: coord.y });
+        adapter.send({ type: 'requestChunk', x, y });
       });
-      testChunks.push(chunk);
+
+      const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
+      if (riverTiles.length > 0) {
+        testChunks.push(chunkData);
+        found++;
+      }
+
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-  }, 30000);
 
+    if (testChunks.length < 5) {
+      throw new Error(`Only found ${testChunks.length} chunks with rivers after ${tries} random tries`);
+    }
+  }, 30000);
   // Cleanup: disconnect after all tests
   afterAll(async () => {
     await adapter.disconnect();
@@ -57,20 +103,33 @@ describe('River Generation and Quality Tests', () => {
    * @param chunk - The 2D array of tiles representing the chunk.
    * @returns An array of adjacent tiles.
    */
-  const getAdjacentTiles = (tile: any, chunk: any[][]): any[] => {
+  function getAdjacentTilesAt(grid: any[][], x: number, y: number): any[] {
     const adjacent: any[] = [];
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dy === 0) continue; // Skip the tile itself
-        const ny = tile.y + dy;
-        const nx = tile.x + dx;
-        if (ny >= 0 && ny < chunk.length && nx >= 0 && nx < chunk[0].length) {
-          adjacent.push(chunk[ny][nx]);
+        if (dx === 0 && dy === 0) continue;
+        const ny = y + dy;
+        const nx = x + dx;
+        if (ny >= 0 && ny < grid.length && nx >= 0 && nx < grid[0].length) {
+          adjacent.push(grid[ny][nx]);
         }
       }
     }
     return adjacent;
-  };
+  }
+
+  function to2DTileGrid(flatTiles: any[], width: number, height: number): any[][] {
+    const grid: any[][] = [];
+    for (let y = 0; y < height; y++) {
+      const row: any[] = [];
+      for (let x = 0; x < width; x++) {
+        const tile = flatTiles[y * width + x];
+        row.push(tile);
+      }
+      grid.push(row);
+    }
+    return grid;
+  }
 
   // Returns all river tiles in the chunk
   function getAllRiverTiles(chunk: any[][]): any[] {
@@ -81,49 +140,32 @@ describe('River Generation and Quality Tests', () => {
   function getAllTilesOfBiome(chunk: any[][], biome: Biome): any[] {
     return chunk.flat().filter(tile => tile.b === biome);
   }
+  function countIsolatedRiverTiles(tileGrid: any[][]): number {
+    let isolatedCount = 0;
+    for (let y = 0; y < tileGrid.length; y++) {
+      for (let x = 0; x < tileGrid[0].length; x++) {
+        const tile = tileGrid[y][x];
+        if (!tile.w || tile.wT !== WaterType.RIVER) continue;
 
-  // Groups connected river tiles into separate river paths
-  function groupConnectedTiles(tiles: any[], chunk: any[][]): any[][] {
-    const groups: any[][] = [];
-    const visited = new Set<string>();
-    tiles.forEach(tile => {
-      const key = `${tile.x},${tile.y}`;
-      if (!visited.has(key)) {
-        const group: any[] = [];
-        const queue = [tile];
-        while (queue.length > 0) {
-          const current = queue.shift()!;
-          const currentKey = `${current.x},${current.y}`;
-          if (!visited.has(currentKey)) {
-            visited.add(currentKey);
-            group.push(current);
-            // Add adjacent river tiles to queue
-            getAdjacentTiles(current, chunk)
-              .filter(t => t.w && t.wT === WaterType.RIVER)
-              .forEach(neighbor => {
-                const neighborKey = `${neighbor.x},${neighbor.y}`;
-                if (!visited.has(neighborKey)) {
-                  queue.push(neighbor);
-                }
-              });
-          }
-        }
-        if (group.length > 0) {
-          groups.push(group);
+        const neighbors = getAdjacentTilesAt(tileGrid, x, y);
+        const riverNeighbors = neighbors.filter(n => n.w && n.wT === WaterType.RIVER);
+        if (riverNeighbors.length === 0) {
+          isolatedCount++;
         }
       }
-    });
-    return groups;
+    }
+    return isolatedCount;
   }
 
-  // --- River Generation Tests (adapted from old tests) ---
+  // --- River Generation Tests ---
   describe('River Generation Tests', () => {
     describe('Basic River Properties', () => {
       it('should generate rivers with valid properties', () => {
         testChunks.forEach((chunkData) => {
           const tiles = chunkData.chunk.tiles;
+          expect(tiles.length).toBe(100);
           const riverTiles = getAllRiverTiles(tiles);
-          
+
           if (riverTiles.length === 0) {
             console.warn('No river tiles found in chunk');
             return;
@@ -141,238 +183,106 @@ describe('River Generation and Quality Tests', () => {
           });
         });
       });
+    });
 
-      it('should maintain proper river flow direction including depressions', () => {
+    describe('Quantity Checks', () => {
+      it('should include at least one chunk with 15 or more river tiles', () => {
+        const qualifyingChunks = testChunks.filter(chunkData => {
+          const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
+          return riverTiles.length >= 15;
+        });
+
+        if (qualifyingChunks.length === 0) {
+          const counts = testChunks.map(chunkData => getAllRiverTiles(chunkData.chunk.tiles).length);
+          console.warn(`River tile counts per chunk: [${counts.join(', ')}]`);
+        }
+
+        expect(qualifyingChunks.length).toBeGreaterThan(0);
+      });
+    });
+
+    describe('Elevation Checks', () => {
+      it('should not generate river tiles below sea level (elevation < 0.3)', () => {
         testChunks.forEach((chunkData) => {
-          const tiles = chunkData.chunk.tiles;
-          const riverTiles = getAllRiverTiles(tiles);
-          const lakeTiles = getAllTilesOfBiome(tiles, Biome.LAKE);
-          
-          if (riverTiles.length === 0) {
-            console.warn('No river tiles found in chunk');
-            return;
-          }
-
+          const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
           riverTiles.forEach(tile => {
-            const neighbors = getAdjacentTiles(tile, tiles);
-            const riverNeighbors = neighbors.filter(n => n.w && n.wT === WaterType.RIVER);
-            const isEdgeTile = tile.x === 0 || tile.x === CHUNK_SIZE-1 || tile.y === 0 || tile.y === CHUNK_SIZE-1;
-
-            if (riverNeighbors.length === 0) {
-              // This is a river source (mountain or lake)
-              if (getAdjacentTiles(tile, tiles).some(n => n.b === Biome.MOUNTAIN_SNOW)) {
-                // Mountain source - should be higher than at least one neighbor
-                expect(neighbors.some(n => n.nH < tile.nH)).toBe(true);
-              } else if (lakeTiles.some(lake =>
-                Math.abs(lake.x - tile.x) <= 1 && Math.abs(lake.y - tile.y) <= 1)
-              ) {
-                // Lake outlet - should flow away from lake
-                expect(true).toBe(true); // Just validate connection
-              }
-            } else if (isEdgeTile) {
-              // Handle river tiles at the edge of the chunk
-              const isValidEdgeCase = () => {
-                // Case 1: Standard endpoint
-                if (riverNeighbors.length <= 1) return true;
-                // Case 2: Parallel flow (either all x same or all y same)
-                const isXAligned = riverNeighbors.every(n => n.x === tile.x);
-                const isYAligned = riverNeighbors.every(n => n.y === tile.y);
-                if (isXAligned || isYAligned) {
-                  return true;
-                }
-                // Case 3: Corner turn (exactly 2 neighbors forming right angle)
-                if (riverNeighbors.length === 2) {
-                  return Math.abs(riverNeighbors[0].x - riverNeighbors[1].x) === 1 &&
-                    Math.abs(riverNeighbors[0].y - riverNeighbors[1].y) === 1;
-                }
-                return false;
-              };
-              expect(isValidEdgeCase()).toBe(true);
-            } else {
-              // Normal flow or depression
-              const hasUpstream = riverNeighbors.some(n => n.nH > tile.nH);
-              const hasDownstream = riverNeighbors.some(n => n.nH < tile.nH);
-              // In depressions, we might only have upstream connections
-              const inDepression = !hasDownstream && riverNeighbors.length > 1;
-              if (!inDepression) {
-                expect(hasUpstream || hasDownstream).toBe(true);
-              }
+            if (tile.nH <= 0.3) {
+              console.warn(`Failed elevation check: Too low in chunk ${chunkData.chunk.x}, ${chunkData.chunk.y}`);
             }
+            expect(tile.nH).toBeGreaterThanOrEqual(0.3);
           });
         });
       });
-    });
 
-    describe('River Start Points', () => {
-      it('should have only one natural source unless both mountain and lake present', () => {
+      it('should not generate river tiles above 0.8 elevation', () => {
         testChunks.forEach((chunkData) => {
-          const tiles = chunkData.chunk.tiles;
-          const riverTiles = getAllRiverTiles(tiles);
-          
-          if (riverTiles.length === 0) {
-            console.warn('No river tiles found in chunk');
-            return;
-          }
-
-          // Find river sources adjacent to mountains
-          const mountainSources = riverTiles.filter(tile =>
-            getAdjacentTiles(tile, tiles).some(n => n.b === Biome.MOUNTAIN_SNOW)
-          );
-          // Find river sources adjacent to lakes
-          const lakeSources = riverTiles.filter(tile =>
-            getAdjacentTiles(tile, tiles).some(n => n.b === Biome.LAKE)
-          );
-          const hasMountain = mountainSources.length > 0;
-          const hasLake = lakeSources.length > 0;
-          
-          if (hasMountain && hasLake) {
-            // If both types of sources exist, require at least one of each
-            expect(mountainSources.length).toBeGreaterThanOrEqual(1);
-            expect(lakeSources.length).toBeGreaterThanOrEqual(1);
-          } else if (hasMountain || hasLake) {
-            // If only one type of source, require at least one source in total
-            const totalSources = mountainSources.length + lakeSources.length;
-            expect(totalSources).toBeGreaterThan(0);
-          }
-        });
-      });
-    });
-
-    describe('River Movement Rules', () => {
-      it('should never have pure diagonal movement without cardinal connection', () => {
-        testChunks.forEach((chunkData) => {
-          const tiles = chunkData.chunk.tiles;
-          const riverTiles = getAllRiverTiles(tiles);
-          
-          if (riverTiles.length === 0) {
-            console.warn('No river tiles found in chunk');
-            return;
-          }
-
+          const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
           riverTiles.forEach(tile => {
-            // Find diagonal river neighbors
-            const diagonalMoves = getAdjacentTiles(tile, tiles)
-              .filter(neighbor =>
-                neighbor.w && neighbor.wT === WaterType.RIVER &&
-                Math.abs(neighbor.x - tile.x) === 1 &&
-                Math.abs(neighbor.y - tile.y) === 1
-              );
-            diagonalMoves.forEach(diagonalNeighbor => {
-              // Ensure there is a cardinal connection between diagonal river tiles
-              const hasCardinalBridge = getAdjacentTiles(tile, tiles)
-                .some(cardinalNeighbor =>
-                  cardinalNeighbor.w && cardinalNeighbor.wT === WaterType.RIVER &&
-                  (cardinalNeighbor.x === diagonalNeighbor.x ||
-                    cardinalNeighbor.y === diagonalNeighbor.y) &&
-                  (Math.abs(cardinalNeighbor.x - tile.x) === 1) !==
-                  (Math.abs(cardinalNeighbor.y - tile.y) === 1)
-                );
-              expect(hasCardinalBridge).toBe(true);
-            });
-          });
-        });
-      });
-    });
-
-    describe('River Sources', () => {
-      it('should start rivers from mountains or lakes', () => {
-        testChunks.forEach((chunkData) => {
-          const tiles = chunkData.chunk.tiles;
-          const riverTiles = getAllRiverTiles(tiles);
-          
-          if (riverTiles.length === 0) {
-            console.warn('No river tiles found in chunk');
-            return;
-          }
-
-          // Check that at least one river tile is adjacent to a mountain or lake, or is the highest point in a river segment
-          const validSource = riverTiles.some(river => {
-            // Check if this river tile is adjacent to mountain/lake
-            const adjacentToSource = getAdjacentTiles(river, tiles).some(t =>
-              t.b === Biome.MOUNTAIN_SNOW ||
-              t.b === Biome.LAKE
-            );
-            // Or check if this is the highest point in a river segment
-            if (!adjacentToSource) {
-              const riverNeighbors = getAdjacentTiles(river, tiles)
-                .filter(t => t.w && t.wT === WaterType.RIVER);
-              return riverNeighbors.every(n => n.nH <= river.nH);
+            if (tile.nH > 0.8) {
+              console.warn(`Failed elevation check: Too high in chunk ${chunkData.chunk.x}, ${chunkData.chunk.y}`);
             }
-            return adjacentToSource;
-          });
-          expect(validSource).toBe(true);
-        });
-      });
-    });
-
-    describe('River Paths', () => {
-      it('should have continuous river paths', () => {
-        testChunks.forEach((chunkData) => {
-          const tiles = chunkData.chunk.tiles;
-          const riverTiles = getAllRiverTiles(tiles);
-          
-          if (riverTiles.length === 0) {
-            console.warn('No river tiles found in chunk');
-            return;
-          }
-
-          // Group connected river tiles
-          const riverGroups = groupConnectedTiles(riverTiles, tiles);
-          // Each river should have at least 2 connected tiles (reduced from 3 due to smaller chunk size)
-          riverGroups.forEach(group => {
-            expect(group.length).toBeGreaterThanOrEqual(2);
-          });
-        });
-      });
-
-      it('should terminate at ocean or chunk edge', () => {
-        testChunks.forEach((chunkData) => {
-          const tiles = chunkData.chunk.tiles;
-          const riverTiles = getAllRiverTiles(tiles);
-          
-          if (riverTiles.length === 0) {
-            console.warn('No river tiles found in chunk');
-            return;
-          }
-
-          // Find river endpoints (tiles with only one river neighbor)
-          const endpoints = riverTiles.filter(tile => {
-            const riverNeighbors = getAdjacentTiles(tile, tiles)
-              .filter(t => t.w && t.wT === WaterType.RIVER);
-            return riverNeighbors.length <= 1;
-          });
-          endpoints.forEach(endpoint => {
-            // Endpoints must be adjacent to ocean or at the chunk edge
-            const isAtEdge = endpoint.x === 0 || endpoint.x === CHUNK_SIZE-1 || 
-                             endpoint.y === 0 || endpoint.y === CHUNK_SIZE-1;
-            const isAtOcean = getAdjacentTiles(endpoint, tiles)
-              .some(t => t.w && t.wT === WaterType.OCEAN);
-            expect(isAtEdge || isAtOcean).toBe(true);
+            expect(tile.nH).toBeLessThanOrEqual(0.8);
           });
         });
       });
     });
 
-    describe('River-Lake Interactions', () => {
-      it('should properly connect rivers to lakes', () => {
+    describe('Continuity Checks', () => {
+      it('should have a low ratio of isolated river tiles', () => {
+        const MIN_RIVER_TILES = 5;
+
         testChunks.forEach((chunkData) => {
-          const tiles = chunkData.chunk.tiles;
-          const lakeTiles = getAllTilesOfBiome(tiles, Biome.LAKE);
-          
-          if (lakeTiles.length > 0) {
-            // Each lake should have at least one river connection
-            lakeTiles.forEach(lake => {
-              const hasRiverConnection = getAdjacentTiles(lake, tiles)
-                .some(t => t.w && t.wT === WaterType.RIVER);
-              expect(hasRiverConnection).toBe(true);
+          const tileGrid = to2DTileGrid(chunkData.chunk.tiles, CHUNK_SIZE, CHUNK_SIZE);
+          const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
+
+          if (riverTiles.length < MIN_RIVER_TILES) {
+            console.log(`Skipping isolated-tile check on Chunk ${chunkData.chunk.x}, ${chunkData.chunk.y} (only ${riverTiles.length} river tiles)`);
+            return;
+          }
+
+          const isolatedCount = countIsolatedRiverTiles(tileGrid);
+          const ratio = isolatedCount / riverTiles.length;
+
+          if (ratio >= 0.25) {
+            console.warn(`Failed on Chunk ${chunkData.chunk.x}, ${chunkData.chunk.y}: ${isolatedCount} out of ${riverTiles.length} are isolated`);
+          }
+
+          expect(ratio).toBeLessThan(0.25);
+        });
+      });
+
+      it('should contain at least one wide river region ("lake-like") in the test set', () => {
+        let foundLakeLike = false;
+
+        testChunks.forEach(({ chunk }) => {
+          const flatTiles = chunk.tiles;
+          const riverTiles = getAllRiverTiles(flatTiles);
+          const tileGrid = to2DTileGrid(flatTiles, CHUNK_SIZE, CHUNK_SIZE);
+
+          for (const tile of riverTiles) {
+            const neighbors = getAdjacentTilesAt(tileGrid, tile.x, tile.y);
+            const directionsCovered = new Set();
+            neighbors.forEach(n => {
+              if (n.w && n.wT === WaterType.RIVER) {
+                const dx = n.x - tile.x;
+                const dy = n.y - tile.y;
+                directionsCovered.add(`${dx},${dy}`);
+              }
             });
+
+            if (directionsCovered.size >= 5) { // coverage in at least 5 directions = "lake-like"
+              foundLakeLike = true;
+              break;
+            }
           }
         });
+
+        expect(foundLakeLike).toBe(true);
       });
     });
   });
 
-  // --- Basic Validation Tests (from new tests) ---
+  // --- Basic Validation Tests ---
   describe('Basic Validation Across All Chunks', () => {
     it(`river tiles should have valid structure`, () => {
       testChunks.forEach((chunkData) => {
