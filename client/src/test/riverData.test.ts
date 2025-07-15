@@ -468,7 +468,7 @@ describe('River Generation and Quality Tests', () => {
                     tile.y + dy;
 
               const neighborTile = neighborChunk.tiles.find((t: Tile) =>
-                t.x === neighborTileX && t.y === neighborTileY
+                t.x === tile.x + dx && t.y === tile.y + dy
               );
 
               if (neighborTile && neighborTile.w && neighborTile.wT === WaterType.RIVER) {
