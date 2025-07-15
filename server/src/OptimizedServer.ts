@@ -8,7 +8,8 @@ import { Worker } from "worker_threads";
 import path from "path";
 import Redis from 'ioredis';
 import { Pool } from 'pg';
-import { ResourceType } from "shared/ResourceTypes";
+import { ResourceNode, ResourceType } from "shared/ResourceTypes";
+import { TerrainPoint } from "shared/TileTypes";
 dotenv.config();
 
 const app = express();
@@ -194,11 +195,11 @@ async function getOrGenerateChunk(x: number, y: number, mode: string): Promise<C
   const generationPromise = (async () => {
     try {
       // Check Redis cache first
-      let chunk = await getCachedChunk(x, y);
+      let chunk = null;//await getCachedChunk(x, y);
 
       if (!chunk) {
         // Check DB
-        chunk = await findChunkInDB(x, y);
+        chunk = null;//await findChunkInDB(x, y);
       }
 
       if (!chunk) {
@@ -225,7 +226,14 @@ async function getCachedChunk(x: number, y: number): Promise<ChunkData | null> {
   try {
     const key = `chunk:${x}:${y}`;
     const cached = await redis.get(key);
-    return cached ? JSON.parse(cached) : null;
+    if (!cached) return null;
+
+    const parsed = JSON.parse(cached);
+    if (!parsed.resources && parsed.terrain) {
+      parsed.resources = extractResourcesFromTerrain(parsed.terrain);
+    }
+
+    return parsed;
   } catch (error) {
     console.error('Redis get error:', error);
     return null;
@@ -241,6 +249,18 @@ async function setCachedChunk(chunk: ChunkData): Promise<void> {
   }
 }
 
+function extractResourcesFromTerrain(terrain: TerrainPoint[][]): Record<string, ResourceNode> {
+  const resources: Record<string, ResourceNode> = {};
+  for (let row of terrain) {
+    for (let point of row) {
+      if (point.r) {
+        resources[`${point.x},${point.y}`] = point.r;
+      }
+    }
+  }
+  return resources;
+}
+
 // Database operations with PostgreSQL
 async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
   try {
@@ -252,12 +272,15 @@ async function findChunkInDB(x: number, y: number): Promise<ChunkData | null> {
     if (result.rows.length === 0) return null;
 
     const row = result.rows[0];
+    const terrain = row.terrain;
+
     return {
       x,
       y,
       tiles: row.tiles,
-      terrain: row.terrain,
-      mode: 'chunk'
+      terrain,
+      mode: 'chunk',
+      resources: extractResourcesFromTerrain(terrain),
     };
   } catch (error) {
     console.error('Database find error:', error);
@@ -438,6 +461,36 @@ async function handleMessage(ws: any, message: any, playerId: string) {
   } else if (message.type === "handshake") {
     const players = await getAllPlayers();
     ws.send(JSON.stringify({ type: "handshook", id: playerId, players }));
+  } else if (message.type === "mining") {
+    const { x, y, tool } = message;
+    const result = await handleMining(playerId, x, y, tool);
+
+    if (result.success) {
+      ws.send(JSON.stringify({
+        type: "miningSuccess",
+        resource: result.resource,
+        amount: result.amount,
+        x,
+        y
+      }));
+
+      // Broadcast update to nearby players and invalidate chunk
+      const chunkX = Math.floor(x / 10);
+      const chunkY = Math.floor(y / 10);
+
+      await pubClient.publish(
+        'chunk_invalidate',
+        JSON.stringify({ x: chunkX, y: chunkY })
+      );
+
+      broadcastChunkUpdate(chunkX, chunkY);
+    } else {
+      ws.send(JSON.stringify({
+        type: "miningFailed",
+        x,
+        y
+      }));
+    }
   }
 }
 
@@ -455,6 +508,72 @@ async function broadcastPlayerUpdate() {
     });
   } catch (error) {
     console.error('Error broadcasting player update:', error);
+  }
+}
+
+// Resource management
+async function handleMining(playerId: string, x: number, y: number, tool: string): Promise<{ success: boolean, resource?: ResourceType, amount?: number }> {
+  try {
+    // Get the chunk containing this position
+    const chunkSize = 10;
+    const chunkX = Math.floor(x / chunkSize);
+    const chunkY = Math.floor(y / chunkSize);
+
+    // Get the chunk data
+    let chunk = await getCachedChunk(chunkX, chunkY);
+    if (!chunk) {
+      chunk = await findChunkInDB(chunkX, chunkY);
+      if (!chunk) {
+        return { success: false };
+      }
+    }
+
+    // Find the specific tile
+    const mod = (n: number, m: number) => ((n % m) + m) % m;
+
+    const tileX = mod(x, chunkSize);
+    const tileY = mod(y, chunkSize);
+
+    let tile;
+    if (chunk.terrain) {
+      tile = chunk.terrain[tileY][tileX];
+    } else {
+      return { success: false };
+    }
+
+    if (!tile || !tile.r) {
+      return { success: false };
+    }
+
+    const resource = tile.r; // Get first resource
+    if (resource.remaining <= 0) {
+      return { success: false };
+    }
+
+    // Calculate mining efficiency
+    const toolEfficiency = {
+      hand: 0.2,
+      pickaxe: 0.6,
+      drill: 0.9
+    }[tool] || 0.2;
+
+    const efficiency = Math.max(0.1, toolEfficiency - resource.hardness);
+    const minedAmount = Math.max(1, Math.floor(resource.remaining * efficiency * 0.1));
+
+    // Update resource
+    resource.remaining = Math.max(0, resource.remaining - minedAmount);
+
+    // Update the chunk in database and cache
+    await saveChunkToDB(chunk);
+
+    return {
+      success: true,
+      resource: resource.type,
+      amount: minedAmount
+    };
+  } catch (error) {
+    console.error('Mining error:', error);
+    return { success: false };
   }
 }
 
