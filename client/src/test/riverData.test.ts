@@ -33,7 +33,7 @@ describe('River Generation and Quality Tests', () => {
     const seenCoords = new Set<string>(); // Set to store coordinates of requested chunks to avoid duplicates.
 
     // Hardcoded chunk coordinates to request initially.
-    // These specific coordinates are chosen likely because they are known to potentially contain rivers,
+    // These specific coordinates are chosen because they are known to potentially contain rivers,
     // or to test specific edge cases or common river generation patterns.
     const hardcodedCoords = [
       { x: 0, y: 0 },
@@ -65,8 +65,8 @@ describe('River Generation and Quality Tests', () => {
 
       // Get all river tiles from the received chunk.
       const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
-      // If river tiles are found, add the chunk to the testChunks array and increment the 'found' counter.
-      if (riverTiles.length > 0) {
+      // If rivers are present (avoiding single-river-tile chunks), add the chunk to the testChunks and increment 'found'.
+      if (riverTiles.length > 1) {
         testChunks.push(chunkData);
         found++;
       }
@@ -104,8 +104,8 @@ describe('River Generation and Quality Tests', () => {
 
       // Check if the obtained chunk contains any river tiles.
       const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
-      // If rivers are present, add the chunk to the testChunks and increment 'found'.
-      if (riverTiles.length > 0) {
+      // If rivers are present (avoiding single-river-tile chunks), add the chunk to the testChunks and increment 'found'.
+      if (riverTiles.length > 1) {
         testChunks.push(chunkData);
         found++;
       }
@@ -114,10 +114,9 @@ describe('River Generation and Quality Tests', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // After attempting to gather chunks, if fewer than 5 chunks with rivers were found, throw an error.
-    // This ensures that there's sufficient data to run the river-specific tests effectively.
+    // After attempting to gather chunks, if fewer than 5 chunks with rivers were found, log a warning.
     if (testChunks.length < 5) {
-      throw new Error(`Only found ${testChunks.length} chunks with rivers after ${tries} random tries`);
+      console.warn(`Only found ${testChunks.length} chunks with rivers after ${tries} random tries. River generation failure.`);
     }
   }, 30000); // Set a timeout of 30 seconds for the beforeAll hook, as network requests can take time.
 
@@ -231,6 +230,14 @@ describe('River Generation and Quality Tests', () => {
     // --- Basic River Properties Tests ---
     // This sub-block verifies that river tiles have the expected attributes after generation.
     describe('Basic River Properties', () => {
+
+      // Ensure we found at least 5 chunks with rivers
+      // If this fails, it indicates rivers are not being generated at all, are
+      // very rare (as to violate spec) or severely fragmented
+      it('should generate sufficient chunks with rivers', () => {
+        expect(testChunks.length).toBeGreaterThanOrEqual(5) 
+      });
+
       it('should generate rivers with valid properties', () => {
         // Iterate over each chunk that was collected during the setup phase.
         testChunks.forEach((chunkData) => {
