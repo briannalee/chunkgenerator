@@ -3,7 +3,7 @@ import { INetworkAdapter } from "../network/INetworkAdapter";
 import { NetworkFactory } from "../network/NetworkFactory";
 import { WaterType, SoilType, Biome, ColorIndex } from "shared/TerrainTypes";
 import { TileNormalizer } from "../logic/NormalizeTiles";
-import { LandTile } from "shared/TileTypes";
+import { Tile } from "shared/TileTypes";
 
 // Main test suite for terrain quality
 // This 'describe' block defines a test suite focused on the generation and quality of rivers within the game's terrain.
@@ -235,7 +235,7 @@ describe('River Generation and Quality Tests', () => {
       // If this fails, it indicates rivers are not being generated at all, are
       // very rare (as to violate spec) or severely fragmented
       it('should generate sufficient chunks with rivers', () => {
-        expect(testChunks.length).toBeGreaterThanOrEqual(5) 
+        expect(testChunks.length).toBeGreaterThanOrEqual(5)
       });
 
       it('should generate rivers with valid properties', () => {
@@ -393,6 +393,97 @@ describe('River Generation and Quality Tests', () => {
 
         // Assert that at least one "lake-like" river region was found across all tested chunks.
         expect(foundLakeLike).toBe(true);
+      });
+
+      it('should have at least one river that continues across a chunk boundary (including diagonals)', async () => {
+        const fetchedChunks = new Map<string, any>();
+
+        function chunkKey(x: number, y: number): string {
+          return `${x},${y}`;
+        }
+
+        // Helper to fetch and normalize a chunk, using cache
+        async function getChunk(x: number, y: number): Promise<any> {
+          const key = chunkKey(x, y);
+          if (fetchedChunks.has(key)) return fetchedChunks.get(key);
+
+          const chunkData = await new Promise(resolve => {
+            adapter.onMessage((data: any) => {
+              if (data.type === 'chunkData' && data.chunk?.x === x && data.chunk?.y === y) {
+                data.chunk.tiles = TileNormalizer.NormalizeTiles(data.chunk.tiles);
+                resolve(data);
+              }
+            });
+            adapter.send({ type: 'requestChunk', x, y });
+          });
+
+          fetchedChunks.set(key, chunkData);
+          return chunkData;
+        }
+
+        let foundConnected = false;
+
+        for (const { chunk } of testChunks) {
+          const { x: chunkX, y: chunkY, tiles } = chunk;
+          fetchedChunks.set(chunkKey(chunkX, chunkY), { chunk }); // prime cache
+
+          const edgeRiverTiles = tiles.filter((t: Tile) =>
+            t.w && t.wT === WaterType.RIVER &&
+            (t.x === 0 || t.x === CHUNK_SIZE - 1 || t.y === 0 || t.y === CHUNK_SIZE - 1)
+          );
+
+          if (edgeRiverTiles.length === 0) continue;
+
+          // Check each tile against all 8 directions
+          const directions = [
+            [-1, -1], [0, -1], [1, -1],
+            [-1, 0], [1, 0],
+            [-1, 1], [0, 1], [1, 1]
+          ];
+
+          for (const tile of edgeRiverTiles) {
+            for (const [dx, dy] of directions) {
+              const neighborChunkX = chunkX + (tile.x === 0 && dx === -1 ? -1
+                : tile.x === CHUNK_SIZE - 1 && dx === 1 ? 1
+                  : 0);
+
+              const neighborChunkY = chunkY + (tile.y === 0 && dy === -1 ? -1
+                : tile.y === CHUNK_SIZE - 1 && dy === 1 ? 1
+                  : 0);
+
+              // Only fetch actual neighboring chunks
+              if (neighborChunkX === chunkX && neighborChunkY === chunkY) continue;
+
+              const neighborChunk = (await getChunk(neighborChunkX, neighborChunkY)).chunk;
+
+              // Convert local tile x/y into neighbor coordinates
+              const neighborTileX =
+                tile.x === 0 && dx === -1 ? CHUNK_SIZE - 1 :
+                  tile.x === CHUNK_SIZE - 1 && dx === 1 ? 0 :
+                    tile.x + dx;
+
+              const neighborTileY =
+                tile.y === 0 && dy === -1 ? CHUNK_SIZE - 1 :
+                  tile.y === CHUNK_SIZE - 1 && dy === 1 ? 0 :
+                    tile.y + dy;
+
+              const neighborTile = neighborChunk.tiles.find((t: Tile) =>
+                t.x === neighborTileX && t.y === neighborTileY
+              );
+
+              if (neighborTile && neighborTile.w && neighborTile.wT === WaterType.RIVER) {
+                foundConnected = true;
+                break;
+              }
+            }
+
+            if (foundConnected) break;
+          }
+
+          if (foundConnected) break;
+        }
+
+        expect(foundConnected).toBe(true);
       });
     });
   });
