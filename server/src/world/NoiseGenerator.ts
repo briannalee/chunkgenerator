@@ -52,7 +52,7 @@ export class NoiseGenerator {
     const heightFactor = Math.max(0, 1 - height * 1.5);
     // Add some local variation
     const variation = this.fbm(x * 0.02, y * 0.02, 3) * 0.2;
-    
+
     // Combine factors and normalize to [0,1]
     return Math.max(0, Math.min(1, (latitudeFactor * heightFactor) + variation));
   }
@@ -61,18 +61,49 @@ export class NoiseGenerator {
   generatePrecipitation(x: number, y: number, height: number, temp: number): number {
     // Base precipitation with noise
     let precip = this.fbm(x * 0.01 + 100, y * 0.01 + 100, 4) * 0.5 + 0.5;
-    
+
     // Rain shadow effect - less rain on leeward side of mountains
     const mountainEffect = Math.max(0, height - 0.5) * 2;
     const windDirection = this.fbm(x * 0.001, y * 0.001, 1); // Simplified wind direction
     const rainShadow = mountainEffect * Math.max(0, windDirection);
-    
+
     // Precipitation is generally higher in moderate temperatures
     const tempEffect = 1 - Math.abs(temp - 0.5) * 2;
-    
+
     // Combine factors
     precip = precip * (1 - rainShadow * 0.5) * (0.5 + tempEffect * 0.5);
-    
+
     return Math.max(0, Math.min(1, precip));
   }
+
+  generateRiverValue(x: number, y: number): number {
+    const octaves = 5;
+    const persistence = 0.5;
+    const lacunarity = 2.0;
+    const offset = 1.0;
+    const scale = 0.005; // Low frequency for spaced-out, connected rivers
+
+    let value = 0;
+    let amplitude = 1;
+    let frequency = scale;
+    let maxValue = 0;
+
+    for (let i = 0; i < octaves; i++) {
+      let signal = this.noise2D(x * frequency, y * frequency);
+      signal = Math.abs(signal);
+      signal = offset - signal;
+      signal *= signal; // Sharpen for path-like structures
+      value += signal * amplitude;
+      maxValue += amplitude;
+      amplitude *= persistence;
+      frequency *= lacunarity;
+    }
+
+    return value / maxValue;
+  }
+
+  generateRiverWidth(x: number, y: number): number {
+    return (this.fbm(x * 0.001, y * 0.001, 3, 2.0, 0.5) + 1) * 0.5; // Normalized 0-1
+  }
+
 }

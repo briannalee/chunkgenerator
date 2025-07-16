@@ -13,6 +13,10 @@ describe('River Generation and Quality Tests', () => {
   let testChunks: any[] = []; // Array to store chunk data that contains rivers, used for testing.
   const CHUNK_SIZE = 10; // Defines the size of a chunk (e.g., 10x10 tiles).
 
+  // These two values roughly determine the min % of terrain that must be rivers
+  const MIN_RIVER_TILES = 5; // Minimum number of river tiles required to perform tests on
+  const MAX_TRIES = 100; // Maximum amount of chunks to try when looking for river tiles.
+
   // Setup: This hook runs once before all tests in this describe block.
   // It's responsible for establishing a network connection, initializing the tile normalizer,
   // and requesting a set of chunk data, prioritizing those that contain rivers.
@@ -27,14 +31,12 @@ describe('River Generation and Quality Tests', () => {
       adapter.onMessage((data: any) => data.type === 'connected' && resolve(true));
     });
 
-    const maxTries = 100; // Maximum attempts to find chunks with rivers.
     let tries = 0; // Counter for random chunk request attempts.
     let found = 0; // Counter for chunks found that contain rivers.
     const seenCoords = new Set<string>(); // Set to store coordinates of requested chunks to avoid duplicates.
 
     // Hardcoded chunk coordinates to request initially.
-    // These specific coordinates are chosen because they are known to potentially contain rivers,
-    // or to test specific edge cases or common river generation patterns.
+    // Useful for debug or testing known chunks
     const hardcodedCoords = [
       { x: 0, y: 0 },
       { x: 1, y: 1 },
@@ -77,10 +79,10 @@ describe('River Generation and Quality Tests', () => {
 
     // Sample random chunks until a desired number of chunks with rivers are found (at least 5)
     // or the maximum number of tries is reached.
-    while (found < 5 && tries < maxTries) {
+    while (found < MIN_RIVER_TILES && tries < MAX_TRIES) {
       // Generate random chunk coordinates within a reasonable range.
-      const x = Math.floor(Math.random() * 100) - 50;
-      const y = Math.floor(Math.random() * 100) - 50;
+      const x = Math.floor(Math.random() * 200) - 100;
+      const y = Math.floor(Math.random() * 200) - 100;
       const key = `${x},${y}`; // Create a unique key for the coordinates.
       // If these coordinates have already been seen, skip to the next iteration.
       if (seenCoords.has(key)) continue;
@@ -104,8 +106,8 @@ describe('River Generation and Quality Tests', () => {
 
       // Check if the obtained chunk contains any river tiles.
       const riverTiles = getAllRiverTiles(chunkData.chunk.tiles);
-      // If rivers are present (avoiding single-river-tile chunks), add the chunk to the testChunks and increment 'found'.
-      if (riverTiles.length > 1) {
+      // If rivers are present (avoiding chunks with <MIN_RIVER_TILES), add the chunk to the testChunks and increment 'found'.
+      if (riverTiles.length >= MIN_RIVER_TILES) {
         testChunks.push(chunkData);
         found++;
       }
@@ -115,8 +117,8 @@ describe('River Generation and Quality Tests', () => {
     }
 
     // After attempting to gather chunks, if fewer than 5 chunks with rivers were found, log a warning.
-    if (testChunks.length < 5) {
-      console.warn(`Only found ${testChunks.length} chunks with rivers after ${tries} random tries. River generation failure.`);
+    if (testChunks.length < MIN_RIVER_TILES) {
+      console.warn(`Only found ${testChunks.length} chunks with rivers after ${tries} random tries. River generation too sparse. Minimum river tiles: ${MIN_RIVER_TILES}`);
     }
   }, 30000); // Set a timeout of 30 seconds for the beforeAll hook, as network requests can take time.
 
@@ -131,8 +133,8 @@ describe('River Generation and Quality Tests', () => {
    * This helper function is crucial for continuity checks of rivers, determining if a river tile
    * has other river tiles as neighbors.
    * @param grid - The 2D array of tiles representing the chunk.
-   * @param x - The x-coordinate of the tile.
-   * @param y - The y-coordinate of the tile.
+   * @param x - The local x-coordinate of the tile.
+   * @param y - The local y-coordinate of the tile.
    * @returns An array of adjacent tiles.
    */
   function getAdjacentTilesAt(grid: any[][], x: number, y: number): any[] {
@@ -211,6 +213,10 @@ describe('River Generation and Quality Tests', () => {
 
         // Get all adjacent tiles for the current river tile.
         const neighbors = getAdjacentTilesAt(tileGrid, x, y);
+
+        // Since we are checking only the inner 9x9 grid, all tiles should have 8 neighbors
+        expect(neighbors.length).toBe(8);
+
         // Filter the neighbors to find only other river tiles.
         const riverNeighbors = neighbors.filter(n => n.w && n.wT === WaterType.RIVER);
 
@@ -233,7 +239,7 @@ describe('River Generation and Quality Tests', () => {
 
       // Ensure we found at least 5 chunks with rivers
       // If this fails, it indicates rivers are not being generated at all, are
-      // very rare (as to violate spec) or severely fragmented
+      // very rare (as to violate spec) or too small 
       it('should generate sufficient chunks with rivers', () => {
         expect(testChunks.length).toBeGreaterThanOrEqual(5)
       });
@@ -293,14 +299,51 @@ describe('River Generation and Quality Tests', () => {
         expect(qualifyingChunks.length).toBeGreaterThan(0);
       });
 
-      it('should have at least one chunk that is not entirely river tiles', () => {
-        const hasNonAllRiverChunk = testChunks.some(({ chunk }) => {
-          const tiles = chunk.tiles;
-          const riverTiles = getAllRiverTiles(tiles);
-          return riverTiles.length < tiles.length;  // chunk has at least one non-river tile
+      // New test: Check that 75% of chunks have more than 5 river tiles
+      it('should have at least 75% of chunks containing more than 5 river tiles', () => {
+        let chunksMeetingCriteriaCount = 0; // Counter for chunks that meet the criteria
+        const minRiverTilesPerChunk = 5; // Minimum number of river tiles required per chunk
+        const requiredRatio = 0.75; // 75%
+
+        testChunks.forEach(({ chunk }) => {
+          const riverTiles = getAllRiverTiles(chunk.tiles);
+          // Check if the number of river tiles is strictly greater than the minimum
+          if (riverTiles.length > minRiverTilesPerChunk) {
+            chunksMeetingCriteriaCount++;
+          }
         });
 
-        expect(hasNonAllRiverChunk).toBe(true);
+        // Calculate the actual percentage of chunks that met the criteria
+        const percentageMeetingCriteria = (chunksMeetingCriteriaCount / testChunks.length);
+
+        // Assert that the percentage is greater than or equal to the required ratio
+        // Add a console warning if the condition is not met for easier debugging
+        if (percentageMeetingCriteria < requiredRatio) {
+          console.warn(`Only ${chunksMeetingCriteriaCount} out of ${testChunks.length} chunks (${(percentageMeetingCriteria * 100).toFixed(2)}%) had more than ${minRiverTilesPerChunk} river tiles. Expected at least ${(requiredRatio * 100).toFixed(2)}%.`);
+        }
+        expect(percentageMeetingCriteria).toBeGreaterThanOrEqual(requiredRatio);
+      });
+
+      it('should have at least 50% of chunks containing at least 10 regular tiles', () => {
+        let chunksMeetingCriteriaCount = 0; // Counter for chunks that meet the criteria
+        const minRegularTilesPerChunk = 10; // Minimum number of non-river tiles required per chunk
+        const requiredRatio = 0.50; // 50%
+
+        testChunks.forEach(({ chunk }) => {
+          const tiles = chunk.tiles;
+          const riverTiles = getAllRiverTiles(tiles);
+          const nonRiverTilesCount = tiles.length - riverTiles.length;
+
+          if (nonRiverTilesCount >= minRegularTilesPerChunk) {
+            chunksMeetingCriteriaCount++;
+          }
+        });
+
+        // Calculate the percentage of chunks that met the criteria
+        const percentageMeetingCriteria = (chunksMeetingCriteriaCount / testChunks.length);
+
+        // Assert that the percentage is greater than or equal to the required ratio
+        expect(percentageMeetingCriteria).toBeGreaterThanOrEqual(requiredRatio);
       });
     });
 
@@ -313,7 +356,7 @@ describe('River Generation and Quality Tests', () => {
           const riverTiles = getAllRiverTiles(chunkData.chunk.tiles); // Get river tiles.
           riverTiles.forEach(tile => {
             // If a river tile is found with elevation (nH) below 0.3, log a warning.
-            if (tile.nH <= 0.3) {
+            if (tile.nH < 0.3) {
               console.warn(`Failed elevation check: Too low in chunk ${chunkData.chunk.x}, ${chunkData.chunk.y}`);
             }
             // Assert that the river tile's normalized height (nH) is greater than or equal to 0.3.
@@ -342,18 +385,11 @@ describe('River Generation and Quality Tests', () => {
     // This sub-block focuses on ensuring rivers are continuous and form connected bodies.
     describe('Continuity Checks', () => {
       it('should have a low ratio of isolated river tiles', () => {
-        const MIN_RIVER_TILES = 5; // Minimum number of river tiles required to perform this check.
 
         testChunks.forEach((chunkData) => {
           // Convert the flat tile array to a 2D grid for easier spatial analysis.
           const tileGrid = to2DTileGrid(chunkData.chunk.tiles, CHUNK_SIZE, CHUNK_SIZE);
           const riverTiles = getAllRiverTiles(chunkData.chunk.tiles); // Get river tiles.
-
-          // Skip the check if the chunk has too few river tiles, as a ratio would be less meaningful.
-          if (riverTiles.length < MIN_RIVER_TILES) {
-            console.log(`Skipping isolated-tile check on Chunk ${chunkData.chunk.x}, ${chunkData.chunk.y} (only ${riverTiles.length} river tiles)`);
-            return;
-          }
 
           const isolatedCount = countIsolatedRiverTiles(tileGrid); // Count isolated river tiles.
           const ratio = isolatedCount / riverTiles.length; // Calculate the ratio of isolated to total river tiles.
@@ -379,15 +415,25 @@ describe('River Generation and Quality Tests', () => {
 
           // Iterate through each river tile to check its neighborhood.
           for (const tile of riverTiles) {
-            // Get all adjacent tiles for the current river tile.
-            const neighbors = getAdjacentTilesAt(tileGrid, tile.x, tile.y);
+            // Calculate local coordinates within the current chunk
+            const localTileX = (tile.x % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+            const localTileY = (tile.y % CHUNK_SIZE + CHUNK_SIZE) % CHUNK_SIZE;
+
+            const neighbors = getAdjacentTilesAt(tileGrid, localTileX, localTileY);
+
+            // A tile should never have less than 3 neighbors (corner tiles)
+            expect(neighbors.length).toBeGreaterThanOrEqual(3);
+
             const directionsCovered = new Set(); // Set to store unique directions covered by river neighbors.
 
             neighbors.forEach(n => {
               // If a neighbor is also a river tile, determine the direction relative to the current tile.
               if (n.w && n.wT === WaterType.RIVER) {
-                const dx = n.x - tile.x; // X-difference (e.g., -1, 0, 1)
-                const dy = n.y - tile.y; // Y-difference (e.g., -1, 0, 1)
+                // 'n' (neighbor) also has local chunk coordinates (0 to CHUNK_SIZE-1)
+                // because it's retrieved from the 'tileGrid' which is built from local coordinates.
+                // Therefore, dx and dy calculated from these local coordinates are correct for directions.
+                const dx = n.x - localTileX; // X-difference (e.g., -1, 0, 1)
+                const dy = n.y - localTileY; // Y-difference (e.g., -1, 0, 1)
                 directionsCovered.add(`${dx},${dy}`); // Add the direction as a string to the set.
               }
             });
