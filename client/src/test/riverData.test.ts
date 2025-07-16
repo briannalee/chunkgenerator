@@ -4,6 +4,7 @@ import { NetworkFactory } from "../network/NetworkFactory";
 import { WaterType, SoilType, Biome, ColorIndex } from "shared/TerrainTypes";
 import { TileNormalizer } from "../logic/NormalizeTiles";
 import { Tile } from "shared/TileTypes";
+import { T } from "vitest/dist/chunks/reporters.d.C-cu31ET";
 
 // Main test suite for terrain quality
 // This 'describe' block defines a test suite focused on the generation and quality of rivers within the game's terrain.
@@ -451,130 +452,206 @@ describe('River Generation and Quality Tests', () => {
         expect(foundLakeLike).toBe(true);
       });
 
-      it('should have at least one river that continues across a chunk boundary (using raw border data)', async () => {
-        // Cache to avoid requesting the same border tile data multiple times
-        const fetchedBorders = new Map<string, Tile[]>();
+      // This tests checks chunk border continuity using row/column/point requests to get bordering chunk data.
+      // This is how the client determines tile interpolation, so it is very important
+      it('should have at least one river that continues across a chunk boundary (including diagonals)', async () => {
+        const fetchedData = new Map<string, any>();
+        const pendingRequests = new Set<string>();
 
-        /**
-         * Request border tiles from the server using a specific mode ('row' or 'column').
-         * - These tiles are generated at terrain creation time, *not* post-processed.
-         * - This avoids false positives from rivers added later during decoration.
-         */
-        async function getBorderTiles(
-          worldX: number,
-          worldY: number,
-          mode: 'row' | 'column'
-        ): Promise<Tile[]> {
-          const key = `${worldX},${worldY}`;
-          if (fetchedBorders.has(key)) return fetchedBorders.get(key)!;
-
-          // Send a border request to the server and wait for the response
-          const borderTiles = await new Promise<Tile[]>(resolve => {
-            adapter.onMessage((data: any) => {
-              if (data.type === 'chunkData' && data.chunk?.tiles?.length) {
-                resolve(data.chunk.tiles);
-              }
-            });
-
-            // 'mode' instructs the server to return a full edge row or column, not the full chunk
-            adapter.send({ type: 'requestChunk', x: worldX, y: worldY, mode });
-          });
-
-          fetchedBorders.set(key, borderTiles);
-          return borderTiles;
+        function chunkKey(x: number, y: number): string {
+          return `${x},${y}`;
         }
 
-        // Flag to indicate whether we've found at least one river tile that crosses a chunk boundary
+        function borderKey(worldX: number, worldY: number): string {
+          return `${worldX},${worldY}`;
+        }
+
+        // Helper to wait for border data
+        async function waitForBorderData(key: string): Promise<any> {
+          const maxWait = 500;
+          const interval = 50;
+          let elapsed = 0;
+
+          while (elapsed < maxWait) {
+            if (fetchedData.has(key)) {
+              return fetchedData.get(key);
+            }
+            await new Promise(res => setTimeout(res, interval));
+            elapsed += interval;
+          }
+
+          console.warn(`Border data for ${key} not available after waiting.`);
+          return null;
+        }
+
+        // Helper to request border data if missing
+        function requestBorderIfMissing(key: string, worldX: number, worldY: number, mode: string) {
+          if (!fetchedData.has(key) && !pendingRequests.has(key)) {
+            pendingRequests.add(key);
+            adapter.send({ type: "requestChunk", x: worldX, y: worldY, mode });
+          }
+        }
+
+        // Set up message handler for border data
+        adapter.onMessage((data: any) => {
+          if (data.type === 'chunkData' && data.chunk) {
+            // Normalize tiles
+            data.chunk.tiles = TileNormalizer.NormalizeTiles(data.chunk.tiles);
+
+            // Store in cache using appropriate key
+            if (data.mode === 'row' || data.mode === 'column' || data.mode === 'point') {
+              const key = borderKey(data.x, data.y);
+              fetchedData.set(key, data);
+              pendingRequests.delete(key);
+            } else {
+              // Full chunk
+              const key = chunkKey(data.chunk.x, data.chunk.y);
+              fetchedData.set(key, data);
+              pendingRequests.delete(key);
+            }
+          }
+        });
+
         let foundConnected = false;
 
-        // Iterate over all test chunks (preloaded in memory, post-processed)
         for (const { chunk } of testChunks) {
           const { x: chunkX, y: chunkY, tiles } = chunk;
+          const key = chunkKey(chunkX, chunkY);
+          fetchedData.set(key, { chunk }); // prime cache
 
-          /**
-           * Select only the river tiles that lie on the boundary of this chunk.
-           * These tiles *could* connect to a neighbor, but we need to verify that.
-           * Coordinates are global, not local to the chunk.
-           */
+          // Convert chunk coordinates to world coordinates
+          const chunkWorldX = chunkX * CHUNK_SIZE;
+          const chunkWorldY = chunkY * CHUNK_SIZE;
+
+          // Filter for river tiles that are on the very edge of the CURRENT chunk
           const edgeRiverTiles = tiles.filter((t: Tile) =>
             t.w && t.wT === WaterType.RIVER &&
             (
-              t.x === chunkX * CHUNK_SIZE || // Left edge
-              t.x === chunkX * CHUNK_SIZE + CHUNK_SIZE - 1 || // Right edge
-              t.y === chunkY * CHUNK_SIZE || // Top edge
-              t.y === chunkY * CHUNK_SIZE + CHUNK_SIZE - 1 // Bottom edge
+              t.x === chunkWorldX ||
+              t.x === chunkWorldX + CHUNK_SIZE - 1 ||
+              t.y === chunkWorldY ||
+              t.y === chunkWorldY + CHUNK_SIZE - 1
             )
           );
 
-          if (edgeRiverTiles.length === 0) continue; // No rivers on the boundary of this chunk
+          if (edgeRiverTiles.length === 0) continue;
 
-          // Examine each edge river tile for potential neighbor connections
+          // Define edge directions for row/column requests
+          const edgeDefs = [
+            {
+              dx: -1, dy: 0, mode: 'column',
+              worldX: chunkWorldX - 1, worldY: chunkWorldY,
+              borderKey: borderKey(chunkWorldX - 1, chunkWorldY)
+            },
+            {
+              dx: 1, dy: 0, mode: 'column',
+              worldX: chunkWorldX + CHUNK_SIZE, worldY: chunkWorldY,
+              borderKey: borderKey(chunkWorldX + CHUNK_SIZE, chunkWorldY)
+            },
+            {
+              dx: 0, dy: -1, mode: 'row',
+              worldX: chunkWorldX, worldY: chunkWorldY - 1,
+              borderKey: borderKey(chunkWorldX, chunkWorldY - 1)
+            },
+            {
+              dx: 0, dy: 1, mode: 'row',
+              worldX: chunkWorldX, worldY: chunkWorldY + CHUNK_SIZE,
+              borderKey: borderKey(chunkWorldX, chunkWorldY + CHUNK_SIZE)
+            }
+          ];
+
+          // Define corner directions for point requests
+          const cornerDefs = [
+            {
+              dx: -1, dy: -1,
+              worldX: chunkWorldX - 1,
+              worldY: chunkWorldY - 1,
+              borderKey: borderKey(chunkWorldX - 1, chunkWorldY - 1)
+            },
+            {
+              dx: 1, dy: -1,
+              worldX: chunkWorldX + CHUNK_SIZE,
+              worldY: chunkWorldY - 1,
+              borderKey: borderKey(chunkWorldX + CHUNK_SIZE, chunkWorldY - 1)
+            },
+            {
+              dx: -1, dy: 1,
+              worldX: chunkWorldX - 1,
+              worldY: chunkWorldY + CHUNK_SIZE,
+              borderKey: borderKey(chunkWorldX - 1, chunkWorldY + CHUNK_SIZE)
+            },
+            {
+              dx: 1, dy: 1,
+              worldX: chunkWorldX + CHUNK_SIZE,
+              worldY: chunkWorldY + CHUNK_SIZE,
+              borderKey: borderKey(chunkWorldX + CHUNK_SIZE, chunkWorldY + CHUNK_SIZE)
+            }
+          ];
+
+          // Request all border data upfront
+          for (const { worldX, worldY, mode, borderKey: bKey } of edgeDefs) {
+            requestBorderIfMissing(bKey, worldX, worldY, mode);
+          }
+
+          for (const { worldX, worldY, borderKey: bKey } of cornerDefs) {
+            requestBorderIfMissing(bKey, worldX, worldY, 'point');
+          }
+
+          // Wait for all border data
+          const borderPromises = edgeDefs.map(({ borderKey: bKey }) =>
+            waitForBorderData(bKey)
+          );
+          const cornerPromises = cornerDefs.map(({ borderKey: bKey }) =>
+            waitForBorderData(bKey)
+          );
+
+          await Promise.all([...borderPromises, ...cornerPromises]);
+
+          // Check each edge river tile against all 8 directions
+          const directions = [
+            [-1, -1], [0, -1], [1, -1],
+            [-1, 0], [1, 0],
+            [-1, 1], [0, 1], [1, 1]
+          ];
+
           for (const tile of edgeRiverTiles) {
-            // All 8 surrounding directions: N, NE, E, SE, S, SW, W, NW
-            const directions = [
-              [-1, -1], [0, -1], [1, -1],
-              [-1, 0], [1, 0],
-              [-1, 1], [0, 1], [1, 1]
-            ];
-
             for (const [dx, dy] of directions) {
               const neighborGlobalX = tile.x + dx;
               const neighborGlobalY = tile.y + dy;
 
-              // Compute chunk coordinates from global coordinates for current and neighbor tiles
-              const currentChunkX = Math.floor(tile.x / CHUNK_SIZE);
-              const currentChunkY = Math.floor(tile.y / CHUNK_SIZE);
-              const neighborChunkX = Math.floor(neighborGlobalX / CHUNK_SIZE);
-              const neighborChunkY = Math.floor(neighborGlobalY / CHUNK_SIZE);
+              // Calculate which chunk the neighbor belongs to
+              const potentialNeighborChunkX = Math.floor(neighborGlobalX / CHUNK_SIZE);
+              const potentialNeighborChunkY = Math.floor(neighborGlobalY / CHUNK_SIZE);
 
-              // If the neighbor is in the same chunk, ignore it—only cross-chunk connections count
-              if (neighborChunkX === currentChunkX && neighborChunkY === currentChunkY) continue;
+              // Skip if neighbor is in the same chunk
+              if (potentialNeighborChunkX === chunkX && potentialNeighborChunkY === chunkY) {
+                continue;
+              }
 
-              /**
-               * Determine how to request the neighbor tile:
-               * - If directly N/S: request 'row'
-               * - If directly E/W: request 'column'
-               * - If diagonal: request a single point
-               */
-              const borderMode =
-                dx === 0 && (dy === -1 || dy === 1) ? 'row' :
-                  dy === 0 && (dx === -1 || dx === 1) ? 'column' :
-                    'point';
+              // Determine which border data to check
+              let borderData = null;
+              let searchKey = '';
 
-              if (borderMode === 'point') {
-                // Diagonal connection: request one single tile from the server
-                const tileData = await new Promise<Tile | null>(resolve => {
-                  adapter.onMessage((data: any) => {
-                    if (data.type === 'chunkData' && data.chunk?.tiles?.length) {
-                      const found = data.chunk.tiles.find((t: Tile) =>
-                        t.x === neighborGlobalX && t.y === neighborGlobalY
-                      );
-                      resolve(found || null);
-                    }
-                  });
-
-                  adapter.send({ type: 'requestChunk', x: neighborGlobalX, y: neighborGlobalY, mode: 'point' });
-                });
-
-                // If neighbor tile is a river, we've confirmed a cross-chunk connection
-                if (tileData && tileData.w && tileData.wT === WaterType.RIVER) {
-                  foundConnected = true;
-                  break;
-                }
+              // Check if this is a corner (diagonal) neighbor
+              if (dx !== 0 && dy !== 0) {
+                // This is a corner - use point request
+                searchKey = borderKey(neighborGlobalX, neighborGlobalY);
+                borderData = fetchedData.get(searchKey);
               } else {
-                // Request a full border edge (12 tiles along one side)
-                const borderTiles = await getBorderTiles(
-                  borderMode === 'row'
-                    ? Math.floor(neighborGlobalX / CHUNK_SIZE) * CHUNK_SIZE // x for row
-                    : neighborGlobalX, // specific x for column
-                  borderMode === 'column'
-                    ? Math.floor(neighborGlobalY / CHUNK_SIZE) * CHUNK_SIZE // y for column
-                    : neighborGlobalY, // specific y for row
-                  borderMode
-                );
+                // This is an edge neighbor - use row/column request
+                if (dx === 0) {
+                  // Vertical neighbor - use row request
+                  searchKey = borderKey(chunkWorldX, neighborGlobalY);
+                } else {
+                  // Horizontal neighbor - use column request
+                  searchKey = borderKey(neighborGlobalX, chunkWorldY);
+                }
+                borderData = fetchedData.get(searchKey);
+              }
 
-                // Find the specific tile at the neighbor's location
-                const neighborTile = borderTiles.find(t =>
+              if (borderData && borderData.chunk && borderData.chunk.tiles) {
+                // Find the specific tile using global coordinates
+                const neighborTile = borderData.chunk.tiles.find((t: Tile) =>
                   t.x === neighborGlobalX && t.y === neighborGlobalY
                 );
 
@@ -585,15 +662,12 @@ describe('River Generation and Quality Tests', () => {
               }
             }
 
-            // Break out of tile loop if a connection has been found
             if (foundConnected) break;
           }
 
-          // Break out of chunk loop if a connection has been found
           if (foundConnected) break;
         }
 
-        // The final assertion: at least one edge river should connect to another chunk
         expect(foundConnected).toBe(true);
       });
     });
