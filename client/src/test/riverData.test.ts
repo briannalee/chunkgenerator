@@ -483,9 +483,20 @@ describe('River Generation and Quality Tests', () => {
           const { x: chunkX, y: chunkY, tiles } = chunk;
           fetchedChunks.set(chunkKey(chunkX, chunkY), { chunk }); // prime cache
 
+          // Filter for river tiles that are on the very edge of the CURRENT chunk.
+          // This must now use global coordinates in relation to the chunk's global position.
           const edgeRiverTiles = tiles.filter((t: Tile) =>
             t.w && t.wT === WaterType.RIVER &&
-            (t.x === 0 || t.x === CHUNK_SIZE - 1 || t.y === 0 || t.y === CHUNK_SIZE - 1)
+            (
+              // Is it on the left edge of this chunk? (global_x = chunkX * CHUNK_SIZE)
+              t.x === chunkX * CHUNK_SIZE ||
+              // Is it on the right edge of this chunk? (global_x = chunkX * CHUNK_SIZE + CHUNK_SIZE - 1)
+              t.x === chunkX * CHUNK_SIZE + CHUNK_SIZE - 1 ||
+              // Is it on the top edge of this chunk? (global_y = chunkY * CHUNK_SIZE)
+              t.y === chunkY * CHUNK_SIZE ||
+              // Is it on the bottom edge of this chunk? (global_y = chunkY * CHUNK_SIZE + CHUNK_SIZE - 1)
+              t.y === chunkY * CHUNK_SIZE + CHUNK_SIZE - 1
+            )
           );
 
           if (edgeRiverTiles.length === 0) continue;
@@ -498,45 +509,40 @@ describe('River Generation and Quality Tests', () => {
           ];
 
           for (const tile of edgeRiverTiles) {
+            // 'tile.x' and 'tile.y' are the global coordinates of the current edge tile.
             for (const [dx, dy] of directions) {
-              const neighborChunkX = chunkX + (tile.x === 0 && dx === -1 ? -1
-                : tile.x === CHUNK_SIZE - 1 && dx === 1 ? 1
-                  : 0);
+              const neighborGlobalX = tile.x + dx;
+              const neighborGlobalY = tile.y + dy;
 
-              const neighborChunkY = chunkY + (tile.y === 0 && dy === -1 ? -1
-                : tile.y === CHUNK_SIZE - 1 && dy === 1 ? 1
-                  : 0);
+              // Calculate the global coordinates of the chunk that the potential neighbor belongs to.
+              // Use floor division to get the chunk coordinate from a global tile coordinate.
+              const potentialNeighborChunkX = Math.floor(neighborGlobalX / CHUNK_SIZE);
+              const potentialNeighborChunkY = Math.floor(neighborGlobalY / CHUNK_SIZE);
 
-              // Only fetch actual neighboring chunks
-              if (neighborChunkX === chunkX && neighborChunkY === chunkY) continue;
+              // Only consider "actual neighboring chunks" meaning the neighbor is NOT in the current chunk.
+              // This is a direct check of global chunk coordinates.
+              if (potentialNeighborChunkX === chunkX && potentialNeighborChunkY === chunkY) {
+                continue; // Neighbor is in the same chunk, not an inter-chunk connection.
+              }
 
-              const neighborChunk = (await getChunk(neighborChunkX, neighborChunkY)).chunk;
+              const neighborChunkData = await getChunk(potentialNeighborChunkX, potentialNeighborChunkY);
+              const neighborChunkTiles = neighborChunkData.chunk.tiles; // These tiles also have global x/y
 
-              // Convert local tile x/y into neighbor coordinates
-              const neighborTileX =
-                tile.x === 0 && dx === -1 ? CHUNK_SIZE - 1 :
-                  tile.x === CHUNK_SIZE - 1 && dx === 1 ? 0 :
-                    tile.x + dx;
-
-              const neighborTileY =
-                tile.y === 0 && dy === -1 ? CHUNK_SIZE - 1 :
-                  tile.y === CHUNK_SIZE - 1 && dy === 1 ? 0 :
-                    tile.y + dy;
-
-              const neighborTile = neighborChunk.tiles.find((t: Tile) =>
-                t.x === tile.x + dx && t.y === tile.y + dy
+              // Find the specific tile in the neighbor chunk using its *global* coordinates.
+              const neighborTile = neighborChunkTiles.find((t: Tile) =>
+                t.x === neighborGlobalX && t.y === neighborGlobalY
               );
 
               if (neighborTile && neighborTile.w && neighborTile.wT === WaterType.RIVER) {
                 foundConnected = true;
-                break;
+                break; // Found a connection, no need to check further directions for this tile
               }
             }
 
-            if (foundConnected) break;
+            if (foundConnected) break; // Found a connection, no need to check further edge tiles in this chunk
           }
 
-          if (foundConnected) break;
+          if (foundConnected) break; // Found a connection, no need to check further chunks
         }
 
         expect(foundConnected).toBe(true);
