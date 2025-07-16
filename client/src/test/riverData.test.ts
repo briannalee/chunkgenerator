@@ -292,6 +292,16 @@ describe('River Generation and Quality Tests', () => {
         // Assert that at least one chunk meets the minimum river tile count.
         expect(qualifyingChunks.length).toBeGreaterThan(0);
       });
+
+      it('should have at least one chunk that is not entirely river tiles', () => {
+        const hasNonAllRiverChunk = testChunks.some(({ chunk }) => {
+          const tiles = chunk.tiles;
+          const riverTiles = getAllRiverTiles(tiles);
+          return riverTiles.length < tiles.length;  // chunk has at least one non-river tile
+        });
+
+        expect(hasNonAllRiverChunk).toBe(true);
+      });
     });
 
     // --- Elevation Checks ---
