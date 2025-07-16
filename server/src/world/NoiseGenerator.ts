@@ -52,7 +52,7 @@ export class NoiseGenerator {
     const heightFactor = Math.max(0, 1 - height * 1.5);
     // Add some local variation
     const variation = this.fbm(x * 0.02, y * 0.02, 3) * 0.2;
-    
+
     // Combine factors and normalize to [0,1]
     return Math.max(0, Math.min(1, (latitudeFactor * heightFactor) + variation));
   }
@@ -61,18 +61,58 @@ export class NoiseGenerator {
   generatePrecipitation(x: number, y: number, height: number, temp: number): number {
     // Base precipitation with noise
     let precip = this.fbm(x * 0.01 + 100, y * 0.01 + 100, 4) * 0.5 + 0.5;
-    
+
     // Rain shadow effect - less rain on leeward side of mountains
     const mountainEffect = Math.max(0, height - 0.5) * 2;
     const windDirection = this.fbm(x * 0.001, y * 0.001, 1); // Simplified wind direction
     const rainShadow = mountainEffect * Math.max(0, windDirection);
-    
+
     // Precipitation is generally higher in moderate temperatures
     const tempEffect = 1 - Math.abs(temp - 0.5) * 2;
-    
+
     // Combine factors
     precip = precip * (1 - rainShadow * 0.5) * (0.5 + tempEffect * 0.5);
-    
+
     return Math.max(0, Math.min(1, precip));
+  }
+
+  generateRiverNoise(x: number, y: number): number {
+    // Use multiple noise layers to create river-like patterns
+
+    // Primary river network - large scale features
+    const primaryRivers = Math.abs(this.fbm(x * 0.003, y * 0.003 + 1000, 3, 2.0, 0.6));
+
+    // Secondary tributaries - medium scale
+    const secondaryRivers = Math.abs(this.fbm(x * 0.008, y * 0.008 + 2000, 2, 2.0, 0.5));
+
+    // Tertiary streams - small scale
+    const tertiaryStreams = Math.abs(this.fbm(x * 0.02, y * 0.02 + 3000, 2, 2.0, 0.4));
+
+    // Combine layers with different weights
+    // Invert the values so that low noise values (valleys) become high river values
+    const combined = (1 - primaryRivers) * 0.6 +
+      (1 - secondaryRivers) * 0.3 +
+      (1 - tertiaryStreams) * 0.1;
+
+    // Apply ridging to create more defined river channels
+    const ridged = this.applyRidging(combined, 0.4);
+
+    return ridged;
+  }
+
+  // Generate regional variation in river density
+  generateRegionalRiverDensity(x: number, y: number): number {
+    // Large-scale noise for regional river density variation
+    return this.fbm(x * 0.001, y * 0.001 + 5000, 2, 2.0, 0.5);
+  }
+
+  // Apply ridging function to create sharper river channels
+  private applyRidging(value: number, threshold: number): number {
+    if (value > threshold) {
+      // Sharpen values above threshold
+      const normalized = (value - threshold) / (1 - threshold);
+      return threshold + Math.pow(normalized, 0.5) * (1 - threshold);
+    }
+    return value;
   }
 }
