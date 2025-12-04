@@ -20,11 +20,21 @@ export class TileBlending {
 
     if (!blendableBiomes.includes(tile.b)) return false;
 
-    return Object.values(neighbors).some((neighbor: any) =>
-      neighbor &&
-      neighbor.b !== tile.b &&
-      blendableBiomes.includes(neighbor.b)
-    );
+    const steepnessThreshold = 0.5;
+    const tileSteep = tile.stp > steepnessThreshold;
+
+    return Object.values(neighbors).some((neighbor: any) => {
+      if (!neighbor) return false;
+
+      // If biomes are different, check if they are blendable
+      if (neighbor.b !== tile.b) {
+        return blendableBiomes.includes(neighbor.b);
+      }
+
+      // If biomes are the same, check if steepness difference causes a color change
+      const neighborSteep = neighbor.stp > steepnessThreshold;
+      return tileSteep !== neighborSteep;
+    });
   }
 
   static calculateBlendedColor(tile: Tile, neighbors: any, sx: number, sy: number, subTilesPerSide: number, baseColor: number): number {
