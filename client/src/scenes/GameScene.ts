@@ -143,6 +143,7 @@ export class GameScene extends Phaser.Scene {
       let steepnessText = "0";
       let heightText = "0";
       let chunkText = "0,0";
+      let biomeText = "";
       if (chunk) {
         chunkText = `${chunk.x},${chunk.y}`;
         const tileInChunkX = ((tileX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
@@ -161,16 +162,21 @@ export class GameScene extends Phaser.Scene {
         if (chunk.tiles[tileIndex]?.nH) {
           heightText = `${chunk.tiles[tileIndex].nH}`;
         }
-        
+
+        if (chunk.tiles[tileIndex]?.b) {
+          biomeText = `${chunk.tiles[tileIndex].b}`;
+        }
+
       }
 
       this.coordText.setText(
-        `Chunk: ${chunkText}\n` + 
+        `Chunk: ${chunkText}\n` +
         `X: ${Math.floor(this.player.x)}, Y: ${Math.floor(this.player.y)}\n` +
         `Tile: (${tileX}, ${tileY})\n` +
         `Resource: ${resourceText}\n` +
         `Steepness: ${steepnessText}\n` +
-        `Height (n): ${heightText}`
+        `Height (n): ${heightText}\n` +
+        `Biome: ${biomeText}`
       );
     }
   }
